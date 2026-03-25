@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: is-erp-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: 192.168.18.43
+      DB_PORT: 3306
+      DB_USER: admin
+      DB_PASSWORD: "gtni14!$"
+      DB_NAME: is_erp
+      MINIO_HOST: 192.168.18.43
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: "gtni14!$"
+      MINIO_BUCKET: is-erp-logs
+      MINIO_SECURE: "false"
+      SECRET_KEY: "is-erp-jwt-secret-2025-change-me"
+
+  frontend:
+    build: ./frontend
+    container_name: is-erp-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
