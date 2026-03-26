@@ -17,10 +17,12 @@ export default function LogListPage() {
   const [filterYear, setFilterYear] = useState<number | ''>('');
   const [filterMonth, setFilterMonth] = useState<number | ''>('');
   const [search, setSearch] = useState('');
-  const [deleting, setDeleting] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const load = () => {
     setLoading(true);
+    setSelected(new Set());
     getLogs(filterYear || undefined, filterMonth || undefined)
       .then((res) => setLogs(res.data))
       .finally(() => setLoading(false));
@@ -28,22 +30,50 @@ export default function LogListPage() {
 
   useEffect(() => { load(); }, [filterYear, filterMonth]);
 
-  const handleDelete = async (id: number, filename: string) => {
-    if (!confirm(`"${filename}" 로그를 삭제하시겠습니까?\n관련 장비 스냅샷도 함께 삭제됩니다.`)) return;
-    setDeleting(id);
-    try {
-      await deleteLog(id);
-      setLogs((prev) => prev.filter((l) => l.id !== id));
-    } finally {
-      setDeleting(null);
-    }
-  };
-
   const filtered = logs.filter(
     (l) =>
       l.device_name.toLowerCase().includes(search.toLowerCase()) ||
       l.original_filename.toLowerCase().includes(search.toLowerCase())
   );
+
+  const allChecked = filtered.length > 0 && filtered.every((l) => selected.has(l.id));
+
+  const toggleAll = () => {
+    if (allChecked) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((l) => next.delete(l.id));
+        return next;
+      });
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((l) => next.add(l.id));
+        return next;
+      });
+    }
+  };
+
+  const toggleOne = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`선택한 ${selected.size}개 로그를 삭제하시겠습니까?\n관련 장비 스냅샷도 함께 삭제됩니다.`)) return;
+    setBulkDeleting(true);
+    try {
+      await Promise.all(Array.from(selected).map((id) => deleteLog(id)));
+      setLogs((prev) => prev.filter((l) => !selected.has(l.id)));
+      setSelected(new Set());
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const years = Array.from({ length: 6 }, (_, i) => now.getFullYear() - 2 + i);
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -66,6 +96,19 @@ export default function LogListPage() {
           </div>
         </div>
 
+        {selected.size > 0 && (
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="text-muted text-sm">{selected.size}개 선택됨</span>
+            <button
+              className="btn btn-sm btn-danger"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+            >
+              {bulkDeleting ? '삭제 중...' : `선택 삭제 (${selected.size})`}
+            </button>
+          </div>
+        )}
+
         {loading && <div className="loading-box">불러오는 중...</div>}
 
         {!loading && (
@@ -73,13 +116,15 @@ export default function LogListPage() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 36 }}>
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+                  </th>
                   <th>장비명</th>
                   <th>파일명</th>
                   <th>기준월</th>
                   <th>파일 크기</th>
                   <th>업로드 시각</th>
                   <th>업로드 사용자</th>
-                  <th>관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,22 +132,20 @@ export default function LogListPage() {
                   <tr><td colSpan={7} className="empty-box">로그 파일이 없습니다.</td></tr>
                 )}
                 {filtered.map((l) => (
-                  <tr key={l.id}>
+                  <tr
+                    key={l.id}
+                    onClick={() => toggleOne(l.id)}
+                    style={{ cursor: 'pointer', background: selected.has(l.id) ? 'var(--color-primary-light, #ebf4ff)' : undefined }}
+                  >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggleOne(l.id)} />
+                    </td>
                     <td><strong>{l.device_name}</strong></td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{l.original_filename}</td>
                     <td>{l.log_year}-{String(l.log_month).padStart(2, '0')}</td>
                     <td className="text-muted text-sm">{formatBytes(l.file_size)}</td>
                     <td className="text-muted text-sm">{new Date(l.uploaded_at).toLocaleString('ko-KR')}</td>
                     <td className="text-muted text-sm">{l.uploaded_by_username ?? '-'}</td>
-                    <td>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => handleDelete(l.id, l.original_filename)}
-                        disabled={deleting === l.id}
-                      >
-                        {deleting === l.id ? '...' : '삭제'}
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>

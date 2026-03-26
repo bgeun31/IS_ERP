@@ -7,6 +7,9 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DB_HOST: 192.168.18.43
       DB_PORT: 3306
@@ -27,5 +30,5 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-    depends_on:
+depends_on:
       - backend

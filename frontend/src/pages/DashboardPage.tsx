@@ -19,17 +19,25 @@ function fanBadge(op: number | null, total: number | null) {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const now = new Date();
   const [devices, setDevices] = useState<DeviceListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [filterYear, setFilterYear] = useState(now.getFullYear());
+  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
 
   useEffect(() => {
-    getDevices()
+    setLoading(true);
+    setError('');
+    getDevices(filterYear, filterMonth)
       .then((res) => setDevices(res.data))
       .catch(() => setError('장비 목록을 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [filterYear, filterMonth]);
+
+  const years = Array.from({ length: 10 }, (_, i) => now.getFullYear() - 2 + i);
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
 
   const filtered = devices.filter(
     (d) =>
@@ -72,12 +80,20 @@ export default function DashboardPage() {
       <div className="card">
         <div className="page-header" style={{ marginBottom: 16 }}>
           <div className="card-title" style={{ marginBottom: 0 }}>장비 목록</div>
-          <input
-            className="search-input"
-            placeholder="장비명, 타입, 시리얼 검색..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select className="form-select" value={filterYear} onChange={(e) => setFilterYear(Number(e.target.value))}>
+              {years.map((y) => <option key={y} value={y}>{y}년</option>)}
+            </select>
+            <select className="form-select" value={filterMonth} onChange={(e) => setFilterMonth(Number(e.target.value))}>
+              {months.map((m) => <option key={m} value={m}>{m}월</option>)}
+            </select>
+            <input
+              className="search-input"
+              placeholder="장비명, 타입, 시리얼 검색..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
 
         {loading && <div className="loading-box">불러오는 중...</div>}

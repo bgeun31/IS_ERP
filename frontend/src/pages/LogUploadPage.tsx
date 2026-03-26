@@ -63,7 +63,23 @@ export default function LogUploadPage() {
     <Layout title="로그 업로드">
       <div style={{ maxWidth: 700 }}>
         <div className="card">
-          <div className="card-title">로그 파일 업로드</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div className="card-title" style={{ marginBottom: 0 }}>로그 파일 업로드</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleUpload}
+                disabled={uploading || files.length === 0}
+              >
+                {uploading ? '업로드 중...' : `업로드 (${files.length}개 파일)`}
+              </button>
+              {files.length > 0 && (
+                <button className="btn btn-secondary" onClick={() => setFiles([])}>
+                  전체 제거
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* 기준월 선택 */}
           <div className="form-row" style={{ marginBottom: 20 }}>
@@ -121,21 +137,6 @@ export default function LogUploadPage() {
           )}
 
           {error && <p className="form-error" style={{ marginTop: 12 }}>{error}</p>}
-
-          <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
-            <button
-              className="btn btn-primary"
-              onClick={handleUpload}
-              disabled={uploading || files.length === 0}
-            >
-              {uploading ? '업로드 중...' : `업로드 (${files.length}개 파일)`}
-            </button>
-            {files.length > 0 && (
-              <button className="btn btn-secondary" onClick={() => setFiles([])}>
-                전체 제거
-              </button>
-            )}
-          </div>
         </div>
 
         {/* 업로드 결과 */}

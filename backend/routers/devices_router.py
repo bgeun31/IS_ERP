@@ -52,32 +52,41 @@ def _snapshot_to_dict(snap: DeviceSnapshot) -> dict:
 
 @router.get("")
 def list_devices(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """모든 장비의 최신 스냅샷과 스냅샷 수를 반환합니다."""
-    # 장비별 최신 log_file_id 서브쿼리
-    subq = (
-        db.query(
-            DeviceSnapshot.device_name,
-            func.max(LogFile.log_year * 100 + LogFile.log_month).label("latest_ym"),
+    """모든 장비의 스냅샷을 반환합니다. year/month 지정 시 해당 월, 미지정 시 최신."""
+    if year and month:
+        # 특정 연월 스냅샷
+        target_snaps = (
+            db.query(DeviceSnapshot)
+            .join(LogFile, DeviceSnapshot.log_file_id == LogFile.id)
+            .filter(LogFile.log_year == year, LogFile.log_month == month)
+            .all()
         )
-        .join(LogFile, DeviceSnapshot.log_file_id == LogFile.id)
-        .group_by(DeviceSnapshot.device_name)
-        .subquery()
-    )
-
-    # 장비별 최신 스냅샷
-    latest_snaps = (
-        db.query(DeviceSnapshot)
-        .join(LogFile, DeviceSnapshot.log_file_id == LogFile.id)
-        .join(
-            subq,
-            (DeviceSnapshot.device_name == subq.c.device_name)
-            & ((LogFile.log_year * 100 + LogFile.log_month) == subq.c.latest_ym),
+    else:
+        # 장비별 최신 log_file_id 서브쿼리
+        subq = (
+            db.query(
+                DeviceSnapshot.device_name,
+                func.max(LogFile.log_year * 100 + LogFile.log_month).label("latest_ym"),
+            )
+            .join(LogFile, DeviceSnapshot.log_file_id == LogFile.id)
+            .group_by(DeviceSnapshot.device_name)
+            .subquery()
         )
-        .all()
-    )
+        target_snaps = (
+            db.query(DeviceSnapshot)
+            .join(LogFile, DeviceSnapshot.log_file_id == LogFile.id)
+            .join(
+                subq,
+                (DeviceSnapshot.device_name == subq.c.device_name)
+                & ((LogFile.log_year * 100 + LogFile.log_month) == subq.c.latest_ym),
+            )
+            .all()
+        )
 
     # 장비별 스냅샷 수
     counts = (
@@ -88,7 +97,7 @@ def list_devices(
     count_map = {row.device_name: row.cnt for row in counts}
 
     result = []
-    for snap in sorted(latest_snaps, key=lambda s: s.device_name):
+    for snap in sorted(target_snaps, key=lambda s: s.device_name):
         result.append(
             {
                 "device_name": snap.device_name,

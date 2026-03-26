@@ -31,7 +31,8 @@ export const login = (username: string, password: string) => {
 export const getMe = () => api.get<User>('/auth/me');
 
 // Devices
-export const getDevices = () => api.get<DeviceListItem[]>('/devices');
+export const getDevices = (year?: number, month?: number) =>
+  api.get<DeviceListItem[]>('/devices', { params: { year, month } });
 export const getDevice = (name: string) =>
   api.get<{ device_name: string; snapshots: DeviceSnapshot[] }>(`/devices/${encodeURIComponent(name)}`);
 
