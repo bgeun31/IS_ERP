@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { getDevice, getRawLog } from '../api/client';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { getDevice, getDevices, getRawLog } from '../api/client';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import type { DeviceSnapshot } from '../types';
@@ -50,7 +50,7 @@ function LogModal({ title, content, onClose }: { title: string; content: string;
   );
 }
 
-function Section({ title, children, onShowLog }: { title: string; children: React.ReactNode; onShowLog?: () => void }) {
+function Section({ title, children, onShowLog, headerRight }: { title: string; children: React.ReactNode; onShowLog?: () => void; headerRight?: React.ReactNode }) {
   return (
     <div className="card">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -61,6 +61,7 @@ function Section({ title, children, onShowLog }: { title: string; children: Reac
             style={{ fontSize: 12, padding: '3px 10px', background: '#edf2f7', border: '1px solid #e2e8f0', borderRadius: 5, cursor: 'pointer', color: '#4a5568', whiteSpace: 'nowrap' }}
           >관련 로그</button>
         )}
+        {headerRight}
       </div>
       {children}
     </div>
@@ -78,12 +79,26 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 export default function DeviceDetailPage() {
   const { name } = useParams<{ name: string }>();
+  const navigate = useNavigate();
   const [snapshots, setSnapshots] = useState<DeviceSnapshot[]>([]);
   const [selected, setSelected] = useState<DeviceSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [rawLog, setRawLog] = useState<string | null>(null);
   const [modal, setModal] = useState<{ title: string; content: string } | null>(null);
+  const [sysLog, setSysLog] = useState<string | null>(null);
+  const [sysLogLoading, setSysLogLoading] = useState(false);
+  const [sysLogDateFrom, setSysLogDateFrom] = useState('');
+  const [sysLogDateTo, setSysLogDateTo] = useState('');
+  const [deviceNames, setDeviceNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    getDevices().then((res) => setDeviceNames(res.data.map((d) => d.device_name)));
+  }, []);
+
+  const currentIndex = deviceNames.indexOf(name ?? '');
+  const prevName = currentIndex > 0 ? deviceNames[currentIndex - 1] : null;
+  const nextName = currentIndex >= 0 && currentIndex < deviceNames.length - 1 ? deviceNames[currentIndex + 1] : null;
 
   useEffect(() => {
     if (!name) return;
@@ -107,16 +122,46 @@ export default function DeviceDetailPage() {
   };
 
   // 스냅샷 변경 시 캐시 초기화
-  useEffect(() => { setRawLog(null); }, [selected?.id]);
+  useEffect(() => { setRawLog(null); setSysLog(null); setSysLogDateFrom(''); setSysLogDateTo(''); }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected?.log_file_id) return;
+    setSysLogLoading(true);
+    const fetch = async () => {
+      let content = rawLog;
+      if (!content) {
+        const res = await getRawLog(selected.log_file_id!);
+        content = res.data.content;
+        setRawLog(content);
+      }
+      setSysLog(extractLogSections(content, ['show log']));
+      setSysLogLoading(false);
+    };
+    fetch().catch(() => setSysLogLoading(false));
+  }, [selected?.id]);
 
   const s = selected;
 
   return (
     <Layout title={`장비 상세: ${name}`}>
-      <div className="breadcrumb">
-        <Link to="/dashboard">대시보드</Link>
-        <span>›</span>
-        <span>{name}</span>
+      <div className="breadcrumb" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <Link to="/dashboard">대시보드</Link>
+          <span>›</span>
+          <span>{name}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            onClick={() => prevName && navigate(`/devices/${encodeURIComponent(prevName)}`)}
+            disabled={!prevName}
+            style={{ padding: '6px 18px', fontSize: 13, fontWeight: 600, border: '1px solid #e2e8f0', borderRadius: 6, background: prevName ? '#fff' : '#f7fafc', color: prevName ? '#2d3748' : '#cbd5e0', cursor: prevName ? 'pointer' : 'default' }}
+          >이전</button>
+          <button
+            onClick={() => nextName && navigate(`/devices/${encodeURIComponent(nextName)}`)}
+            disabled={!nextName}
+            style={{ padding: '6px 18px', fontSize: 13, fontWeight: 600, border: '1px solid #e2e8f0', borderRadius: 6, background: nextName ? '#fff' : '#f7fafc', color: nextName ? '#2d3748' : '#cbd5e0', cursor: nextName ? 'pointer' : 'default' }}
+          >다음</button>
+        </div>
       </div>
 
       {loading && <div className="loading-box">불러오는 중...</div>}
@@ -298,6 +343,64 @@ export default function DeviceDetailPage() {
               </div>
             </Section>
           )}
+
+          {(() => {
+            const filteredSysLog = sysLog
+              ? (sysLogDateFrom || sysLogDateTo
+                ? sysLog.split('\n').filter((l) => {
+                    const m = l.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+                    if (!m) return false;
+                    const d = new Date(`${m[3]}-${m[1]}-${m[2]}`);
+                    if (sysLogDateFrom && d < new Date(sysLogDateFrom)) return false;
+                    if (sysLogDateTo && d > new Date(sysLogDateTo)) return false;
+                    return true;
+                  }).join('\n')
+                : sysLog)
+              : null;
+            return (
+              <Section
+                title="시스템 로그 (show logs)"
+                headerRight={sysLog ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {[{ label: '1개월', days: 30 }, { label: '2개월', days: 60 }, { label: '3개월', days: 90 }].map(({ label, days }) => (
+                      <button
+                        key={label}
+                        onClick={() => {
+                          const to = new Date();
+                          const from = new Date();
+                          from.setDate(from.getDate() - days);
+                          setSysLogDateFrom(from.toISOString().slice(0, 10));
+                          setSysLogDateTo(to.toISOString().slice(0, 10));
+                        }}
+                        style={{ padding: '3px 10px', fontSize: 12, border: '1px solid #e2e8f0', borderRadius: 5, background: '#edf2f7', color: '#4a5568', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                      >{label}</button>
+                    ))}
+                    <input type="date" className="form-input" style={{ width: 150, padding: '3px 8px' }} value={sysLogDateFrom} onChange={(e) => setSysLogDateFrom(e.target.value)} />
+                    <span className="text-muted">~</span>
+                    <input type="date" className="form-input" style={{ width: 150, padding: '3px 8px' }} value={sysLogDateTo} onChange={(e) => setSysLogDateTo(e.target.value)} />
+                    {(sysLogDateFrom || sysLogDateTo) && (
+                      <button onClick={() => { setSysLogDateFrom(''); setSysLogDateTo(''); }} style={{ padding: '3px 10px', fontSize: 12, border: '1px solid #e2e8f0', borderRadius: 5, background: '#edf2f7', color: '#4a5568', cursor: 'pointer', whiteSpace: 'nowrap' }}>초기화</button>
+                    )}
+                  </div>
+                ) : undefined}
+              >
+                {sysLogLoading && <div className="text-muted text-sm">불러오는 중...</div>}
+                {!sysLogLoading && sysLog && (
+                  <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all', background: '#f7fafc', borderRadius: 6, padding: '12px 16px' }}>
+                    {filteredSysLog
+                      ? filteredSysLog.split('\n').map((line, i) => {
+                          const excluded = /AAA\.LogSsh|AAA\.authPass|AAA\.logout|cli\.logRemoteCmd/.test(line) || /# show/.test(line);
+                          return (
+                            <span key={i} style={{ display: 'block', background: excluded ? 'transparent' : 'rgba(49,130,206,0.12)', borderRadius: 3 }}>{line}</span>
+                          );
+                        })
+                      : '해당 기간의 로그가 없습니다.'}
+                  </pre>
+                )}
+                {!sysLogLoading && !sysLog && <div className="text-muted text-sm">로그 데이터를 찾을 수 없습니다.</div>}
+              </Section>
+            );
+          })()}
         </>
       )}
 
