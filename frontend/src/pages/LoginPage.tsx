@@ -29,8 +29,8 @@ export default function LoginPage() {
       <div className="login-card">
         <div className="login-logo">
           <div style={{ fontSize: 40, marginBottom: 10 }}>🖧</div>
-          <h1>IS ERP</h1>
-          <p>Extreme 스위치 관리 시스템</p>
+          <h1>네이버 인프라보안</h1>
+          <p>장비 자산관리</p>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="form-group">

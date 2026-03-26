@@ -26,8 +26,8 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [filterYear, setFilterYear] = useState(now.getFullYear());
   const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
-  const [filterSystemType, setFilterSystemType] = useState('');
-  const [filterVersion, setFilterVersion] = useState('');
+  const [filterSystemTypes, setFilterSystemTypes] = useState<Set<string>>(new Set());
+  const [filterVersions, setFilterVersions] = useState<Set<string>>(new Set());
   const [openFilter, setOpenFilter] = useState<'systemType' | 'version' | null>(null);
 
   useEffect(() => {
@@ -45,10 +45,16 @@ export default function DashboardPage() {
   const systemTypes = Array.from(new Set(devices.map((d) => d.latest_snapshot?.system_type ?? '').filter(Boolean))).sort();
   const versions = Array.from(new Set(devices.map((d) => d.latest_snapshot?.primary_version ?? '').filter(Boolean))).sort();
 
+  const toggleFilter = (set: Set<string>, setFn: (s: Set<string>) => void, value: string) => {
+    const next = new Set(set);
+    next.has(value) ? next.delete(value) : next.add(value);
+    setFn(next);
+  };
+
   const filtered = devices.filter((d) => {
     const s = d.latest_snapshot;
-    if (filterSystemType && (s?.system_type ?? '') !== filterSystemType) return false;
-    if (filterVersion && (s?.primary_version ?? '') !== filterVersion) return false;
+    if (filterSystemTypes.size > 0 && !filterSystemTypes.has(s?.system_type ?? '')) return false;
+    if (filterVersions.size > 0 && !filterVersions.has(s?.primary_version ?? '')) return false;
     if (search) {
       const q = search.toLowerCase();
       if (
@@ -123,16 +129,18 @@ export default function DashboardPage() {
                     <span>시스템 타입</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); setOpenFilter(openFilter === 'systemType' ? null : 'systemType'); }}
-                      style={{ marginLeft: 4, padding: '1px 5px', fontSize: 11, cursor: 'pointer', background: filterSystemType ? '#3182ce' : '#e2e8f0', color: filterSystemType ? '#fff' : '#4a5568', border: 'none', borderRadius: 3 }}
+                      style={{ marginLeft: 4, padding: '1px 5px', fontSize: 11, cursor: 'pointer', background: filterSystemTypes.size > 0 ? '#3182ce' : '#e2e8f0', color: filterSystemTypes.size > 0 ? '#fff' : '#4a5568', border: 'none', borderRadius: 3 }}
                     >▼</button>
                     {openFilter === 'systemType' && (
                       <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, padding: 8 }} onClick={(e) => e.stopPropagation()}>
-                        {['', ...systemTypes].map((t) => (
-                          <div
-                            key={t || '__all__'}
-                            onClick={() => { setFilterSystemType(t); setOpenFilter(null); }}
-                            style={{ padding: '6px 10px', cursor: 'pointer', borderRadius: 4, fontSize: 13, background: filterSystemType === t ? '#ebf4ff' : undefined, fontWeight: filterSystemType === t ? 600 : undefined }}
-                          >{t || '전체'}</div>
+                        {filterSystemTypes.size > 0 && (
+                          <div onClick={() => setFilterSystemTypes(new Set())} style={{ padding: '4px 10px 8px', fontSize: 12, color: '#3182ce', cursor: 'pointer' }}>전체 해제</div>
+                        )}
+                        {systemTypes.map((t) => (
+                          <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', borderRadius: 4, fontSize: 13 }}>
+                            <input type="checkbox" checked={filterSystemTypes.has(t)} onChange={() => toggleFilter(filterSystemTypes, setFilterSystemTypes, t)} />
+                            {t}
+                          </label>
                         ))}
                       </div>
                     )}
@@ -141,16 +149,18 @@ export default function DashboardPage() {
                     <span>펌웨어 버전</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); setOpenFilter(openFilter === 'version' ? null : 'version'); }}
-                      style={{ marginLeft: 4, padding: '1px 5px', fontSize: 11, cursor: 'pointer', background: filterVersion ? '#3182ce' : '#e2e8f0', color: filterVersion ? '#fff' : '#4a5568', border: 'none', borderRadius: 3 }}
+                      style={{ marginLeft: 4, padding: '1px 5px', fontSize: 11, cursor: 'pointer', background: filterVersions.size > 0 ? '#3182ce' : '#e2e8f0', color: filterVersions.size > 0 ? '#fff' : '#4a5568', border: 'none', borderRadius: 3 }}
                     >▼</button>
                     {openFilter === 'version' && (
                       <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 220, padding: 8 }} onClick={(e) => e.stopPropagation()}>
-                        {['', ...versions].map((v) => (
-                          <div
-                            key={v || '__all__'}
-                            onClick={() => { setFilterVersion(v); setOpenFilter(null); }}
-                            style={{ padding: '6px 10px', cursor: 'pointer', borderRadius: 4, fontSize: 13, background: filterVersion === v ? '#ebf4ff' : undefined, fontWeight: filterVersion === v ? 600 : undefined }}
-                          >{v || '전체'}</div>
+                        {filterVersions.size > 0 && (
+                          <div onClick={() => setFilterVersions(new Set())} style={{ padding: '4px 10px 8px', fontSize: 12, color: '#3182ce', cursor: 'pointer' }}>전체 해제</div>
+                        )}
+                        {versions.map((v) => (
+                          <label key={v} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', borderRadius: 4, fontSize: 13 }}>
+                            <input type="checkbox" checked={filterVersions.has(v)} onChange={() => toggleFilter(filterVersions, setFilterVersions, v)} />
+                            {v}
+                          </label>
                         ))}
                       </div>
                     )}

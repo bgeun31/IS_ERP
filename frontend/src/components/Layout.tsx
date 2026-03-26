@@ -20,8 +20,8 @@ export default function Layout({ title, children }: LayoutProps) {
     <div className="app-layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <h1>IS ERP</h1>
-          <p>Extreme 스위치 관리</p>
+          <h1>인프라보안</h1>
+          <p>장비 자산관리</p>
         </div>
         <nav className="sidebar-nav">
           <NavLink to="/dashboard" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>

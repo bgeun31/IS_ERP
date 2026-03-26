@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="IS ERP - Extreme 스위치 관리 시스템",
+    title="네이버 인프라보안 장비 자산관리",
     version="1.0.0",
     lifespan=lifespan,
 )
