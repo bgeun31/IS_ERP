@@ -36,7 +36,7 @@ export default function StatusBadge({ value, type = 'generic' }: StatusBadgeProp
 
   // account
   if (type === 'account') {
-    const exists = value === 'true' || value === true;
+    const exists = value === 'true';
     return <span className={`badge ${exists ? 'badge-green' : 'badge-gray'}`}>{exists ? '있음' : '없음'}</span>;
   }
 
