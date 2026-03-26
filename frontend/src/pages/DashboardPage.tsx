@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDevices } from '../api/client';
 import Layout from '../components/Layout';
@@ -29,6 +29,24 @@ export default function DashboardPage() {
   const [filterSystemTypes, setFilterSystemTypes] = useState<Set<string>>(new Set());
   const [filterVersions, setFilterVersions] = useState<Set<string>>(new Set());
   const [openFilter, setOpenFilter] = useState<'systemType' | 'version' | null>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const systemTypeBtnRef = useRef<HTMLButtonElement>(null);
+  const versionBtnRef = useRef<HTMLButtonElement>(null);
+
+  const openDropdown = (type: 'systemType' | 'version') => {
+    setOpenFilter(openFilter === type ? null : type);
+  };
+
+  useLayoutEffect(() => {
+    if (!openFilter) return;
+    const ref = openFilter === 'systemType' ? systemTypeBtnRef : versionBtnRef;
+    const rect = ref.current?.getBoundingClientRect();
+    if (rect) {
+      const top = rect.bottom + window.scrollY + 4;
+      const left = rect.left + window.scrollX;
+      setDropdownPos((prev) => (prev.top === top && prev.left === left ? prev : { top, left }));
+    }
+  });
 
   useEffect(() => {
     setLoading(true);
@@ -125,14 +143,15 @@ export default function DashboardPage() {
               <thead>
                 <tr>
                   <th>장비명</th>
-                  <th style={{ position: 'relative' }}>
+                  <th>
                     <span>시스템 타입</span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setOpenFilter(openFilter === 'systemType' ? null : 'systemType'); }}
+                      ref={systemTypeBtnRef}
+                      onClick={(e) => { e.stopPropagation(); openDropdown('systemType'); }}
                       style={{ marginLeft: 4, padding: '1px 5px', fontSize: 11, cursor: 'pointer', background: filterSystemTypes.size > 0 ? '#3182ce' : '#e2e8f0', color: filterSystemTypes.size > 0 ? '#fff' : '#4a5568', border: 'none', borderRadius: 3 }}
                     >▼</button>
                     {openFilter === 'systemType' && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, padding: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, zIndex: 1000, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 300, overflowY: 'auto', padding: 8 }} onClick={(e) => e.stopPropagation()}>
                         {filterSystemTypes.size > 0 && (
                           <div onClick={() => setFilterSystemTypes(new Set())} style={{ padding: '4px 10px 8px', fontSize: 12, color: '#3182ce', cursor: 'pointer' }}>전체 해제</div>
                         )}
@@ -145,14 +164,15 @@ export default function DashboardPage() {
                       </div>
                     )}
                   </th>
-                  <th style={{ position: 'relative' }}>
+                  <th>
                     <span>펌웨어 버전</span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setOpenFilter(openFilter === 'version' ? null : 'version'); }}
+                      ref={versionBtnRef}
+                      onClick={(e) => { e.stopPropagation(); openDropdown('version'); }}
                       style={{ marginLeft: 4, padding: '1px 5px', fontSize: 11, cursor: 'pointer', background: filterVersions.size > 0 ? '#3182ce' : '#e2e8f0', color: filterVersions.size > 0 ? '#fff' : '#4a5568', border: 'none', borderRadius: 3 }}
                     >▼</button>
                     {openFilter === 'version' && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 220, padding: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, zIndex: 1000, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 220, maxHeight: 300, overflowY: 'auto', padding: 8 }} onClick={(e) => e.stopPropagation()}>
                         {filterVersions.size > 0 && (
                           <div onClick={() => setFilterVersions(new Set())} style={{ padding: '4px 10px 8px', fontSize: 12, color: '#3182ce', cursor: 'pointer' }}>전체 해제</div>
                         )}

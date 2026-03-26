@@ -1,14 +1,67 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getDevice } from '../api/client';
+import { getDevice, getRawLog } from '../api/client';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import type { DeviceSnapshot } from '../types';
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function extractLogSections(content: string, commands: string[]): string {
+  const lines = content.split('\n');
+  const result: string[] = [];
+  let capturing = false;
+
+  for (const line of lines) {
+    if (line.includes('# ')) {
+      const cmdPart = line.split('#').slice(1).join('#').trim().toLowerCase();
+      const isTarget = commands.some((cmd) => cmdPart.includes(cmd));
+      if (isTarget) {
+        capturing = true;
+        result.push(line);
+        continue;
+      } else if (capturing && cmdPart.length > 0) {
+        capturing = false;
+      }
+    }
+    if (capturing) result.push(line);
+  }
+
+  return result.join('\n').trim() || '관련 로그 섹션을 찾을 수 없습니다.';
+}
+
+function LogModal({ title, content, onClose }: { title: string; content: string; onClose: () => void }) {
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: '#fff', borderRadius: 10, width: '80vw', maxWidth: 900, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid #e2e8f0' }}>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>관련 로그 — {title}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#718096' }}>✕</button>
+        </div>
+        <pre style={{ margin: 0, padding: '16px 20px', overflow: 'auto', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all', background: '#f7fafc', borderRadius: '0 0 10px 10px' }}>
+          {content}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children, onShowLog }: { title: string; children: React.ReactNode; onShowLog?: () => void }) {
   return (
     <div className="card">
-      <div className="card-title">{title}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div className="card-title" style={{ marginBottom: 0 }}>{title}</div>
+        {onShowLog && (
+          <button
+            onClick={onShowLog}
+            style={{ fontSize: 12, padding: '3px 10px', background: '#edf2f7', border: '1px solid #e2e8f0', borderRadius: 5, cursor: 'pointer', color: '#4a5568', whiteSpace: 'nowrap' }}
+          >관련 로그</button>
+        )}
+      </div>
       {children}
     </div>
   );
@@ -29,6 +82,8 @@ export default function DeviceDetailPage() {
   const [selected, setSelected] = useState<DeviceSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [rawLog, setRawLog] = useState<string | null>(null);
+  const [modal, setModal] = useState<{ title: string; content: string } | null>(null);
 
   useEffect(() => {
     if (!name) return;
@@ -40,6 +95,19 @@ export default function DeviceDetailPage() {
       .catch(() => setError('장비 정보를 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
   }, [name]);
+
+  const showLog = async (title: string, commands: string[]) => {
+    let content = rawLog;
+    if (!content && selected?.log_file_id) {
+      const res = await getRawLog(selected.log_file_id);
+      content = res.data.content;
+      setRawLog(content);
+    }
+    if (content) setModal({ title, content: extractLogSections(content, commands) });
+  };
+
+  // 스냅샷 변경 시 캐시 초기화
+  useEffect(() => { setRawLog(null); }, [selected?.id]);
 
   const s = selected;
 
@@ -56,7 +124,6 @@ export default function DeviceDetailPage() {
 
       {!loading && !error && snapshots.length > 0 && (
         <>
-          {/* 스냅샷 선택 */}
           {snapshots.length > 1 && (
             <div className="card" style={{ padding: '16px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -76,7 +143,6 @@ export default function DeviceDetailPage() {
 
           {s && (
             <>
-              {/* 상태 요약 */}
               <div className="status-grid">
                 <div className="status-item">
                   <div className="status-item-label">CPU 사용률</div>
@@ -116,8 +182,7 @@ export default function DeviceDetailPage() {
                 </div>
               </div>
 
-              {/* 장비 기본 정보 */}
-              <Section title="장비 정보">
+              <Section title="장비 정보" onShowLog={() => showLog('장비 정보', ['show switch', 'show version', 'show banner', 'show sntp'])}>
                 <div className="info-grid">
                   <InfoRow label="장비명 (파일)" value={s.device_name} />
                   <InfoRow label="Sysname" value={s.sysname} />
@@ -131,8 +196,7 @@ export default function DeviceDetailPage() {
                 </div>
               </Section>
 
-              {/* 관리 설정 */}
-              <Section title="관리 설정 (Management)">
+              <Section title="관리 설정 (Management)" onShowLog={() => showLog('관리 설정', ['show management', 'show man', 'show sman'])}>
                 <div className="info-grid">
                   <InfoRow label="SSH Access" value={s.ssh_access} />
                   <InfoRow label="SSH 활성화" value={<StatusBadge value={s.ssh_enabled} type="enable" />} />
@@ -145,9 +209,8 @@ export default function DeviceDetailPage() {
                 </div>
               </Section>
 
-              {/* 전원 공급 */}
               {s.power_supplies.length > 0 && (
-                <Section title="전원 공급 (Power Supply)">
+                <Section title="전원 공급 (Power Supply)" onShowLog={() => showLog('전원 공급', ['show power'])}>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     {s.power_supplies.map((p) => (
                       <div key={p.supply_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#f7fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
@@ -159,17 +222,15 @@ export default function DeviceDetailPage() {
                 </Section>
               )}
 
-              {/* 계정 */}
-              <Section title="계정 정보 (Account)">
+              <Section title="계정 정보 (Account)" onShowLog={() => showLog('계정 정보', ['show account'])}>
                 <div className="info-grid">
                   <InfoRow label="Admin 계정" value={<StatusBadge value={String(s.account_admin)} type="account" />} />
                   <InfoRow label="User 계정" value={<StatusBadge value={String(s.account_user)} type="account" />} />
                 </div>
               </Section>
 
-              {/* VLAN 목록 */}
               {s.vlans.length > 0 && (
-                <Section title={`VLAN 목록 (${s.vlans.length}개)`}>
+                <Section title={`VLAN 목록 (${s.vlans.length}개)`} onShowLog={() => showLog('VLAN 목록', ['show vlan'])}>
                   <div className="table-wrap">
                     <table>
                       <thead>
@@ -191,9 +252,8 @@ export default function DeviceDetailPage() {
                 </Section>
               )}
 
-              {/* 포트 VLAN */}
               {s.port_vlans.length > 0 && (
-                <Section title="포트 VLAN 목록">
+                <Section title="포트 VLAN 목록" onShowLog={() => showLog('포트 VLAN', ['show port no', 'show ports no'])}>
                   <div style={{ display: 'flex', flexWrap: 'wrap' }}>
                     {s.port_vlans.map((v, i) => <span key={i} className="tag">{v}</span>)}
                   </div>
@@ -202,7 +262,6 @@ export default function DeviceDetailPage() {
             </>
           )}
 
-          {/* 스냅샷 이력 */}
           {snapshots.length > 1 && (
             <Section title="스냅샷 이력">
               <div className="table-wrap">
@@ -245,6 +304,8 @@ export default function DeviceDetailPage() {
       {!loading && !error && snapshots.length === 0 && (
         <div className="empty-box">장비 데이터를 찾을 수 없습니다.</div>
       )}
+
+      {modal && <LogModal title={modal.title} content={modal.content} onClose={() => setModal(null)} />}
     </Layout>
   );
 }

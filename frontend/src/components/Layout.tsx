@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -10,6 +10,13 @@ interface LayoutProps {
 export default function Layout({ title, children }: LayoutProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [showTop, setShowTop] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 300);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -56,6 +63,20 @@ export default function Layout({ title, children }: LayoutProps) {
         </header>
         <main className="page-body">{children}</main>
       </div>
+      {showTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          style={{
+            position: 'fixed', bottom: 32, right: 32, zIndex: 200,
+            width: 44, height: 44, borderRadius: '50%',
+            background: '#3182ce', color: '#fff', border: 'none',
+            fontSize: 20, cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          title="맨 위로"
+        >↑</button>
+      )}
     </div>
   );
 }

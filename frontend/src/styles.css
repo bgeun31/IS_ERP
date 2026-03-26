@@ -305,7 +305,7 @@ tbody tr.selected td { background: #ebf8ff; }
 .info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0; }
 .info-row { display: flex; padding: 10px 0; border-bottom: 1px solid #f0f4f8; }
 .info-row:last-child { border-bottom: none; }
-.info-key { font-size: 12px; font-weight: 600; color: #718096; width: 150px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.3px; padding-top: 1px; }
+.info-key { font-size: 12px; font-weight: 600; color: #718096; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.3px; padding-top: 1px; margin-right: 12px; white-space: nowrap; }
 .info-val { font-size: 13px; color: #2d3748; font-weight: 500; }
 
 /* Checkbox */
