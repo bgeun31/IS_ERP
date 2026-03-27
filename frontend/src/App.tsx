@@ -2,6 +2,9 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import DashboardPage from './pages/DashboardPage';
 import DeviceDetailPage from './pages/DeviceDetailPage';
+import DocumentCreatePage from './pages/DocumentCreatePage';
+import DocumentHistoryPage from './pages/DocumentHistoryPage';
+import DocumentTemplatePage from './pages/DocumentTemplatePage';
 import LoginPage from './pages/LoginPage';
 import LogListPage from './pages/LogListPage';
 import LogUploadPage from './pages/LogUploadPage';
@@ -27,6 +30,9 @@ function AppRoutes() {
       <Route path="/upload" element={<ProtectedRoute><LogUploadPage /></ProtectedRoute>} />
       <Route path="/logs" element={<ProtectedRoute><LogListPage /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute adminOnly><UserManagementPage /></ProtectedRoute>} />
+      <Route path="/documents/templates" element={<ProtectedRoute><DocumentTemplatePage /></ProtectedRoute>} />
+      <Route path="/documents/create" element={<ProtectedRoute><DocumentCreatePage /></ProtectedRoute>} />
+      <Route path="/documents/history" element={<ProtectedRoute><DocumentHistoryPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

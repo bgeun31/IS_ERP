@@ -108,3 +108,58 @@ class UploadResponse(BaseModel):
     results: List[UploadResult]
     success_count: int
     error_count: int
+
+
+# Document schemas
+
+class DocumentVariableSchema(BaseModel):
+    key: str
+    label: str
+
+
+class DocumentTemplateCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class DocumentTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    variables: Optional[List[DocumentVariableSchema]] = None
+
+
+class DocumentTemplateResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    file_type: str
+    original_filename: str
+    file_size: Optional[int] = None
+    variables: List[DocumentVariableSchema] = []
+    created_at: datetime
+    created_by_username: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentRecordCreate(BaseModel):
+    template_id: int
+    title: str
+    field_values: dict
+
+
+class DocumentRecordResponse(BaseModel):
+    id: int
+    template_id: int
+    template_name: Optional[str] = None
+    file_type: Optional[str] = None
+    title: str
+    field_values: dict
+    original_filename: Optional[str] = None
+    file_size: Optional[int] = None
+    created_at: datetime
+    created_by_username: Optional[str] = None
+
+    class Config:
+        from_attributes = True

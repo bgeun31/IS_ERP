@@ -9,6 +9,7 @@ from database import Base, SessionLocal, create_database_if_not_exists, engine
 from minio_client import ensure_bucket
 from routers.auth_router import router as auth_router
 from routers.devices_router import router as devices_router
+from routers.documents_router import router as documents_router
 from routers.logs_router import router as logs_router
 from routers.users_router import router as users_router
 
@@ -63,6 +64,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(logs_router)
 app.include_router(devices_router)
+app.include_router(documents_router)
 
 
 @app.get("/api/health")

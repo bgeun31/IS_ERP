@@ -9,3 +9,6 @@ python-multipart>=0.0.12
 minio>=7.2.9
 cryptography>=43.0.1
 pydantic-settings>=2.5.0
+python-docx>=1.1.2
+docxtpl>=0.19.0
+openpyxl>=3.1.5

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { DeviceListItem, DeviceSnapshot, LogFile, UploadResponse, User } from '../types';
+import type { DeviceListItem, DeviceSnapshot, DocumentRecord, DocumentTemplate, DocumentVariable, LogFile, UploadResponse, User } from '../types';
 
 const api = axios.create({ baseURL: '/api' });
 
@@ -50,5 +50,23 @@ export const createUser = (data: { username: string; password: string; is_admin:
 export const updateUser = (id: number, data: { password?: string; is_admin?: boolean }) =>
   api.put<User>(`/users/${id}`, data);
 export const deleteUser = (id: number) => api.delete(`/users/${id}`);
+
+// Documents - Templates
+export const getTemplates = () => api.get<DocumentTemplate[]>('/documents/templates');
+export const createTemplate = (formData: FormData) =>
+  api.post<DocumentTemplate>('/documents/templates', formData);
+export const updateTemplate = (id: number, data: { name?: string; description?: string; variables?: DocumentVariable[] }) =>
+  api.put<DocumentTemplate>(`/documents/templates/${id}`, data);
+export const deleteTemplate = (id: number) => api.delete(`/documents/templates/${id}`);
+export const getTemplateFile = (id: number) =>
+  api.get(`/documents/templates/${id}/file`, { responseType: 'arraybuffer' });
+
+// Documents - Records
+export const getRecords = () => api.get<DocumentRecord[]>('/documents/records');
+export const createRecord = (data: { template_id: number; title: string; field_values: Record<string, string> }) =>
+  api.post<DocumentRecord>('/documents/records', data);
+export const deleteRecord = (id: number) => api.delete(`/documents/records/${id}`);
+export const getRecordFile = (id: number) =>
+  api.get(`/documents/records/${id}/file`, { responseType: 'arraybuffer' });
 
 export default api;

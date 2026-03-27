@@ -45,6 +45,18 @@ export default function Layout({ title, children }: LayoutProps) {
               <span className="nav-icon">👥</span> 사용자 관리
             </NavLink>
           )}
+          <div style={{ margin: '12px 0 4px', padding: '0 16px', fontSize: 11, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            문서
+          </div>
+          <NavLink to="/documents/templates" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+            <span className="nav-icon">🗂️</span> 템플릿 관리
+          </NavLink>
+          <NavLink to="/documents/create" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+            <span className="nav-icon">✏️</span> 문서 작성
+          </NavLink>
+          <NavLink to="/documents/history" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+            <span className="nav-icon">📋</span> 작업 내역
+          </NavLink>
         </nav>
         <div className="sidebar-footer">
           <div><strong>{user?.username}</strong>{user?.is_admin && ' (관리자)'}</div>

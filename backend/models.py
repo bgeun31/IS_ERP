@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -103,3 +103,38 @@ class DevicePower(Base):
     state = Column(String(50))
 
     snapshot = relationship("DeviceSnapshot", back_populates="power_supplies")
+
+
+class DocumentTemplate(Base):
+    __tablename__ = "document_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(String(500))
+    file_type = Column(String(10), nullable=False)  # 'docx' or 'xlsx'
+    original_filename = Column(String(255), nullable=False)
+    minio_object_key = Column(String(500), nullable=False)
+    file_size = Column(Integer)
+    variables = Column(JSON)  # [{"key": "이름", "label": "담당자 이름"}, ...]
+    created_at = Column(DateTime, server_default=func.now())
+    created_by = Column(Integer, ForeignKey("users.id"))
+
+    creator = relationship("User", foreign_keys=[created_by])
+    records = relationship("DocumentRecord", back_populates="template", cascade="all, delete-orphan")
+
+
+class DocumentRecord(Base):
+    __tablename__ = "document_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("document_templates.id"))
+    title = Column(String(255), nullable=False)
+    field_values = Column(JSON)  # {"이름": "송봉근", "나이": "26"}
+    original_filename = Column(String(255))
+    minio_object_key = Column(String(500))
+    file_size = Column(Integer)
+    created_at = Column(DateTime, server_default=func.now())
+    created_by = Column(Integer, ForeignKey("users.id"))
+
+    template = relationship("DocumentTemplate", back_populates="records")
+    creator = relationship("User", foreign_keys=[created_by])

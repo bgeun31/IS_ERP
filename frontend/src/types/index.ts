@@ -80,3 +80,35 @@ export interface UploadResponse {
   success_count: number;
   error_count: number;
 }
+
+// Document types
+
+export interface DocumentVariable {
+  key: string;
+  label: string;
+}
+
+export interface DocumentTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  file_type: 'docx' | 'xlsx';
+  original_filename: string;
+  file_size: number | null;
+  variables: DocumentVariable[];
+  created_at: string;
+  created_by_username: string | null;
+}
+
+export interface DocumentRecord {
+  id: number;
+  template_id: number;
+  template_name: string | null;
+  file_type: 'docx' | 'xlsx' | null;
+  title: string;
+  field_values: Record<string, string>;
+  original_filename: string | null;
+  file_size: number | null;
+  created_at: string;
+  created_by_username: string | null;
+}
