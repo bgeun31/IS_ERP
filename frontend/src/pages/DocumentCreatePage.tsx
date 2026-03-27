@@ -172,102 +172,276 @@ export default function DocumentCreatePage() {
       <div style={{ display: 'flex', height: 'calc(100vh - 120px)', gap: 0, overflow: 'hidden' }}>
 
         {/* ── 왼쪽: 입력 폼 ── */}
-        <div style={{ width: 360, flexShrink: 0, overflowY: 'auto', padding: '0 24px 24px 0', borderRight: '1px solid #e2e8f0' }}>
+        <div style={{
+          width: 340,
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          borderRight: '1px solid #e2e8f0',
+          background: '#f8fafc',
+          overflow: 'hidden',
+        }}>
+          {/* 스크롤 영역 */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 0' }}>
 
-          <div className="form-group">
-            <label className="form-label">템플릿 선택</label>
+            {/* ── 섹션: 템플릿 선택 ── */}
+            <SectionHeader icon="🗂️" title="템플릿 선택" />
+
             <select
-              className="form-control"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1.5px solid #cbd5e0',
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 500,
+                color: selectedId ? '#1a202c' : '#a0aec0',
+                background: '#fff',
+                outline: 'none',
+                cursor: 'pointer',
+                marginBottom: selectedTemplate ? 12 : 20,
+                appearance: 'auto',
+              }}
               value={selectedId}
               onChange={e => {
                 setSavedRecordId(null);
                 setSelectedId(e.target.value ? Number(e.target.value) : '');
               }}
             >
-              <option value="">-- 템플릿을 선택하세요 --</option>
+              <option value="">— 템플릿을 선택하세요 —</option>
               {templates.map(t => (
                 <option key={t.id} value={t.id}>
                   [{t.file_type.toUpperCase()}] {t.name}
                 </option>
               ))}
             </select>
+
+            {/* 선택된 템플릿 정보 카드 */}
+            {selectedTemplate && (
+              <div style={{
+                background: '#fff',
+                border: '1.5px solid #bee3f8',
+                borderRadius: 8,
+                padding: '10px 14px',
+                marginBottom: 20,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <span style={{ fontSize: 22 }}>{selectedTemplate.file_type === 'docx' ? '📄' : '📊'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: '#1a202c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {selectedTemplate.name}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+                      background: selectedTemplate.file_type === 'docx' ? '#ebf8ff' : '#f0fff4',
+                      color: selectedTemplate.file_type === 'docx' ? '#2b6cb0' : '#276749',
+                    }}>
+                      {selectedTemplate.file_type.toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#718096' }}>
+                      변수 {selectedTemplate.variables.length}개
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {selectedTemplate && (
+              <>
+                {/* ── 섹션: 변수 입력 ── */}
+                {selectedTemplate.variables.length === 0 ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '12px 14px',
+                    background: '#fffbea', border: '1px solid #f6e05e',
+                    borderRadius: 8, fontSize: 13, color: '#744210',
+                    marginBottom: 20,
+                  }}>
+                    <span>⚠️</span> 이 템플릿에는 변수가 없습니다.
+                  </div>
+                ) : (
+                  <>
+                    <SectionHeader
+                      icon="✏️"
+                      title="변수 입력"
+                      badge={`${Object.values(fieldValues).filter(v => v.trim()).length} / ${selectedTemplate.variables.length}`}
+                      hint="입력하면 미리보기가 실시간으로 반영됩니다"
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                      {selectedTemplate.variables.map(v => {
+                        const val = fieldValues[v.key] ?? '';
+                        const filled = val.trim().length > 0;
+                        return (
+                          <div key={v.key} style={{
+                            background: '#fff',
+                            border: `1.5px solid ${filled ? '#9ae6b4' : '#e2e8f0'}`,
+                            borderRadius: 8,
+                            padding: '10px 12px',
+                            transition: 'border-color 0.2s',
+                          }}>
+                            {/* 라벨 행 */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: '#4a5568' }}>
+                                {v.label}
+                              </span>
+                              <span style={{
+                                fontSize: 11, fontFamily: 'monospace',
+                                background: '#edf2f7', color: '#718096',
+                                padding: '1px 6px', borderRadius: 4,
+                              }}>
+                                {`{{${v.key}}}`}
+                              </span>
+                            </div>
+                            {/* 입력 행 */}
+                            <div style={{ position: 'relative' }}>
+                              <input
+                                style={{
+                                  width: '100%',
+                                  padding: '7px 32px 7px 10px',
+                                  border: '1.5px solid #e2e8f0',
+                                  borderRadius: 6,
+                                  fontSize: 13,
+                                  outline: 'none',
+                                  background: '#f8fafc',
+                                  color: '#1a202c',
+                                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                                }}
+                                value={val}
+                                onChange={e => handleFieldChange(v.key, e.target.value)}
+                                placeholder={`${v.label} 입력`}
+                                disabled={isLoading}
+                                onFocus={e => { e.currentTarget.style.borderColor = '#3182ce'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(49,130,206,0.12)'; }}
+                                onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+                              />
+                              {filled && (
+                                <span style={{
+                                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                                  color: '#38a169', fontSize: 14, fontWeight: 700,
+                                }}>✓</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {/* ── 섹션: 저장 설정 ── */}
+                <SectionHeader icon="💾" title="저장 설정" />
+                <div style={{
+                  background: '#fff',
+                  border: `1.5px solid ${title.trim() ? '#9ae6b4' : '#e2e8f0'}`,
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  marginBottom: 20,
+                  transition: 'border-color 0.2s',
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#4a5568', marginBottom: 6 }}>
+                    문서 제목
+                    <span style={{ marginLeft: 4, color: '#e53e3e' }}>*</span>
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      style={{
+                        width: '100%',
+                        padding: '7px 32px 7px 10px',
+                        border: '1.5px solid #e2e8f0',
+                        borderRadius: 6,
+                        fontSize: 13,
+                        outline: 'none',
+                        background: '#f8fafc',
+                        color: '#1a202c',
+                        transition: 'border-color 0.15s, box-shadow 0.15s',
+                      }}
+                      value={title}
+                      onChange={e => setTitle(e.target.value)}
+                      placeholder="저장될 파일명 (확장자 제외)"
+                      disabled={isLoading}
+                      onFocus={e => { e.currentTarget.style.borderColor = '#3182ce'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(49,130,206,0.12)'; }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+                    />
+                    {title.trim() && (
+                      <span style={{
+                        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                        color: '#38a169', fontSize: 14, fontWeight: 700,
+                      }}>✓</span>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 11, color: '#a0aec0' }}>
+                    저장 파일명: {title.trim() ? `${title.trim()}.${selectedTemplate.file_type}` : `미입력.${selectedTemplate.file_type}`}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
+          {/* ── 하단 고정: 액션 버튼 ── */}
           {selectedTemplate && (
-            <>
-              {selectedTemplate.variables.length === 0 ? (
-                <div style={{ padding: 16, background: '#fffbea', border: '1px solid #f6e05e', borderRadius: 8, fontSize: 14, color: '#744210', marginBottom: 16 }}>
-                  이 템플릿에는 변수가 없습니다.
-                </div>
-              ) : (
-                <>
-                  <div style={{ marginBottom: 8, fontSize: 13, color: '#718096' }}>
-                    입력하면 오른쪽 미리보기가 실시간으로 업데이트됩니다.
-                  </div>
-                  {selectedTemplate.variables.map(v => (
-                    <div className="form-group" key={v.key}>
-                      <label className="form-label">
-                        {v.label}
-                        <span style={{ marginLeft: 6, fontSize: 11, color: '#a0aec0', fontFamily: 'monospace' }}>
-                          {`{{${v.key}}}`}
-                        </span>
-                      </label>
-                      <input
-                        className="form-control"
-                        value={fieldValues[v.key] ?? ''}
-                        onChange={e => handleFieldChange(v.key, e.target.value)}
-                        placeholder={`${v.label} 입력`}
-                        disabled={isLoading}
-                      />
-                    </div>
-                  ))}
-                </>
-              )}
-
-              <div className="form-group" style={{ marginTop: 16 }}>
-                <label className="form-label">문서 제목 *</label>
-                <input
-                  className="form-control"
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                  placeholder="저장될 파일명 (확장자 제외)"
-                  disabled={isLoading}
-                />
-              </div>
-
+            <div style={{
+              flexShrink: 0,
+              padding: '14px 20px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+            }}>
               {saveError && (
-                <div style={{ color: '#c53030', fontSize: 13, marginBottom: 8 }}>{saveError}</div>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '8px 12px', marginBottom: 10,
+                  background: '#fff5f5', border: '1px solid #fed7d7',
+                  borderRadius: 7, fontSize: 12, color: '#c53030',
+                }}>
+                  <span>⚠️</span> {saveError}
+                </div>
               )}
 
               {savedRecordId ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ padding: 12, background: '#f0fff4', border: '1px solid #9ae6b4', borderRadius: 8, fontSize: 14, color: '#276749' }}>
-                    저장 완료!
-                  </div>
-                  <button className="btn btn-primary" onClick={handleDownload}>
-                    다운로드 (.{selectedTemplate.file_type})
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => {
-                    setSavedRecordId(null);
-                    setTitle('');
-                    const init: Record<string, string> = {};
-                    selectedTemplate.variables.forEach(v => { init[v.key] = ''; });
-                    setFieldValues(init);
+                <>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 14px', marginBottom: 10,
+                    background: '#f0fff4', border: '1px solid #9ae6b4',
+                    borderRadius: 8, fontSize: 13, color: '#276749', fontWeight: 600,
                   }}>
-                    새 문서 작성
-                  </button>
-                </div>
+                    <span>✅</span> 저장이 완료되었습니다.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-primary"
+                      style={{ flex: 1 }}
+                      onClick={handleDownload}
+                    >
+                      ⬇ 다운로드
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ flex: 1 }}
+                      onClick={() => {
+                        setSavedRecordId(null);
+                        setTitle('');
+                        const init: Record<string, string> = {};
+                        selectedTemplate.variables.forEach(v => { init[v.key] = ''; });
+                        setFieldValues(init);
+                      }}
+                    >
+                      새 문서 작성
+                    </button>
+                  </div>
+                </>
               ) : (
                 <button
                   className="btn btn-primary"
-                  style={{ width: '100%' }}
+                  style={{ width: '100%', padding: '11px 16px', fontSize: 14, justifyContent: 'center' }}
                   onClick={handleSave}
                   disabled={saving || !title.trim() || isLoading}
                 >
-                  {saving ? '저장 중...' : '저장 및 다운로드'}
+                  {saving ? '⏳ 저장 중...' : '저장 및 다운로드'}
                 </button>
               )}
-            </>
+            </div>
           )}
         </div>
 
@@ -362,6 +536,33 @@ export default function DocumentCreatePage() {
         </div>
       </div>
     </Layout>
+  );
+}
+
+// ── 섹션 헤더 컴포넌트 ────────────────────────────────────────────────────────
+
+function SectionHeader({ icon, title, badge, hint }: { icon: string; title: string; badge?: string; hint?: string }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 13 }}>{icon}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          {title}
+        </span>
+        {badge && (
+          <span style={{
+            marginLeft: 2, fontSize: 11, fontWeight: 700,
+            background: '#ebf8ff', color: '#2b6cb0',
+            padding: '1px 7px', borderRadius: 20,
+          }}>
+            {badge}
+          </span>
+        )}
+      </div>
+      {hint && (
+        <div style={{ marginTop: 3, fontSize: 11, color: '#a0aec0' }}>{hint}</div>
+      )}
+    </div>
   );
 }
 
