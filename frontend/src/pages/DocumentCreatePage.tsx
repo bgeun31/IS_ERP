@@ -347,10 +347,10 @@ export default function DocumentCreatePage() {
                   ref={previewRef}
                   style={{
                     height: '100%',
-                    background: '#fff',
+                    background: selectedTemplate?.file_type === 'xlsx' ? '#fff' : '#e8ecf0',
                     border: '1px solid #e2e8f0',
                     borderRadius: 8,
-                    padding: selectedTemplate?.file_type === 'xlsx' ? 0 : 16,
+                    padding: selectedTemplate?.file_type === 'xlsx' ? 8 : 0,
                     overflowY: 'auto',
                     opacity: isLoading ? 0 : 1,
                     transition: 'opacity 0.3s ease',
@@ -416,9 +416,34 @@ async function renderDocxPreview(
 
   const blob = await zip.generateAsync({ type: 'blob' });
   container.innerHTML = '';
+
+  // 페이지 구분용 CSS — 중복 주입 방지
+  if (!document.getElementById('docx-viewer-style')) {
+    const style = document.createElement('style');
+    style.id = 'docx-viewer-style';
+    style.textContent = `
+      .docx-viewer-wrap {
+        background: #e8ecf0;
+        padding: 24px 16px;
+        min-height: 100%;
+        box-sizing: border-box;
+      }
+      .docx-viewer-wrap .docx {
+        background: #fff;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+        margin: 0 auto 24px auto;
+        box-sizing: border-box;
+      }
+      .docx-viewer-wrap .docx:last-child {
+        margin-bottom: 0;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   await renderAsync(blob, container, undefined, {
-    className: 'docx-wrapper',
-    inWrapper: false,
+    className: 'docx-viewer-wrap',
+    inWrapper: true,
     ignoreWidth: false,
     ignoreHeight: false,
   });
