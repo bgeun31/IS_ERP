@@ -7,6 +7,7 @@ export default function DocumentHistoryPage() {
   const [records, setRecords] = useState<DocumentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailTarget, setDetailTarget] = useState<DocumentRecord | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const load = async () => {
     try {
@@ -54,10 +55,26 @@ export default function DocumentHistoryPage() {
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
 
+  const filteredRecords = records.filter(r => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      r.title.toLowerCase().includes(q) ||
+      (r.template_name || '').toLowerCase().includes(q) ||
+      (r.created_by_username || '').toLowerCase().includes(q)
+    );
+  });
+
   return (
     <Layout title="작업 내역">
-      <div style={{ marginBottom: 20 }}>
+      <div className="page-header" style={{ marginBottom: 16 }}>
         <p className="text-muted text-sm">저장된 문서 작업 기록입니다. 파일을 다시 다운로드할 수 있습니다.</p>
+        <input
+          className="search-input"
+          placeholder="문서 제목, 템플릿명, 작성자 검색..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
       </div>
 
       {loading ? (
@@ -82,7 +99,13 @@ export default function DocumentHistoryPage() {
               </tr>
             </thead>
             <tbody>
-              {records.map(r => (
+              {filteredRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#718096' }}>
+                    검색 결과가 없습니다.
+                  </td>
+                </tr>
+              ) : filteredRecords.map(r => (
                 <tr key={r.id}>
                   <td>
                     <button

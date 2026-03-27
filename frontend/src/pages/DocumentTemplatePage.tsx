@@ -23,6 +23,9 @@ export default function DocumentTemplatePage() {
   const [editDesc, setEditDesc] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // 검색
+  const [searchQuery, setSearchQuery] = useState('');
+
   const load = async () => {
     try {
       const res = await getTemplates();
@@ -86,6 +89,18 @@ export default function DocumentTemplatePage() {
     }
   };
 
+  const filteredTemplates = templates.filter(t => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      t.name.toLowerCase().includes(q) ||
+      (t.description || '').toLowerCase().includes(q) ||
+      t.original_filename.toLowerCase().includes(q) ||
+      t.file_type.toLowerCase().includes(q) ||
+      (t.created_by_username || '').toLowerCase().includes(q)
+    );
+  });
+
   const formatSize = (bytes: number | null) => {
     if (!bytes) return '-';
     return bytes < 1024 * 1024
@@ -95,11 +110,19 @@ export default function DocumentTemplatePage() {
 
   return (
     <Layout title="템플릿 관리">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div className="page-header" style={{ marginBottom: 16 }}>
         <p className="text-muted text-sm">
           Word(.docx) 또는 Excel(.xlsx) 파일에 <code style={{ background: '#edf2f7', padding: '2px 6px', borderRadius: 4 }}>{'{{변수명}}'}</code> 형식으로 플레이스홀더를 작성하여 업로드하세요.
         </p>
-        <button className="btn btn-primary" onClick={() => setShowUpload(true)}>+ 템플릿 업로드</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            className="search-input"
+            placeholder="템플릿명, 파일명, 등록자 검색..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          <button className="btn btn-primary" onClick={() => setShowUpload(true)}>+ 템플릿 업로드</button>
+        </div>
       </div>
 
       {loading ? (
@@ -125,7 +148,13 @@ export default function DocumentTemplatePage() {
               </tr>
             </thead>
             <tbody>
-              {templates.map(t => (
+              {filteredTemplates.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: '#718096' }}>
+                    검색 결과가 없습니다.
+                  </td>
+                </tr>
+              ) : filteredTemplates.map(t => (
                 <tr key={t.id}>
                   <td><strong>{t.name}</strong>{t.description && <div className="text-muted text-sm">{t.description}</div>}</td>
                   <td>
