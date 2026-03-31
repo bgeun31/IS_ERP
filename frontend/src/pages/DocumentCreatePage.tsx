@@ -26,16 +26,25 @@ export default function DocumentCreatePage() {
   const [loadingProgress, setLoadingProgress] = useState(0);   // 0~100
   const [loadingStage, setLoadingStage] = useState<'idle' | 'downloading' | 'rendering' | 'done'>('idle');
 
-  // 템플릿 버퍼를 state로 관리 → 변경 시 useEffect로 렌더 트리거
   const [templateBuffer, setTemplateBuffer] = useState<ArrayBuffer | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const renderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 항상 최신 값을 참조하는 refs — stale closure 방지
+  const templateBufferRef = useRef<ArrayBuffer | null>(null);
+  const selectedTemplateRef = useRef<DocumentTemplate | null>(null);
+  const fieldValuesRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     getTemplates().then(res => setTemplates(res.data));
   }, []);
 
   const selectedTemplate = templates.find(t => t.id === selectedId) ?? null;
+
+  // refs를 최신 state와 동기화
+  useEffect(() => { templateBufferRef.current = templateBuffer; }, [templateBuffer]);
+  useEffect(() => { selectedTemplateRef.current = selectedTemplate; }, [selectedTemplate]);
+  useEffect(() => { fieldValuesRef.current = fieldValues; }, [fieldValues]);
 
   // ── 템플릿 선택 시 파일 다운로드 ───────────────────────────────────────────
   useEffect(() => {
@@ -79,49 +88,45 @@ export default function DocumentCreatePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
+  // refs를 통해 항상 최신 값을 읽으므로 stale closure 없음
+  const renderPreview = async (values: Record<string, string>) => {
+    const buffer = templateBufferRef.current;
+    const template = selectedTemplateRef.current;
+    const container = previewRef.current;
+    if (!buffer || !container || !template) return;
+    try {
+      if (template.file_type === 'docx') {
+        await renderDocxPreview(buffer, values, container);
+      } else {
+        await renderXlsxPreview(buffer, values, container);
+      }
+    } catch (e) {
+      console.error('미리보기 렌더링 오류:', e);
+    }
+  };
+
   // ── 버퍼 로드 완료 → 초기 렌더링 ──────────────────────────────────────────
   useEffect(() => {
     if (!templateBuffer || !selectedTemplate) return;
     setLoadingStage('rendering');
     setLoadingProgress(80);
 
-    const doRender = async () => {
-      await renderPreview(fieldValues);
+    renderPreview({}).then(() => {
       setLoadingProgress(100);
       setLoadingStage('done');
-    };
-    doRender();
-  // fieldValues 제외 — 초기 1회만 실행
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateBuffer, selectedTemplate]);
-
-  // ── 필드 변경 시 디바운스 렌더링 ───────────────────────────────────────────
-  useEffect(() => {
-    if (!templateBuffer || loadingStage !== 'done') return;
-    if (renderTimerRef.current) clearTimeout(renderTimerRef.current);
-    renderTimerRef.current = setTimeout(() => renderPreview(fieldValues), 150);
-    return () => {
-      if (renderTimerRef.current) clearTimeout(renderTimerRef.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fieldValues]);
-
-  const renderPreview = useCallback(async (values: Record<string, string>) => {
-    const container = previewRef.current;
-    if (!templateBuffer || !container || !selectedTemplate) return;
-    try {
-      if (selectedTemplate.file_type === 'docx') {
-        await renderDocxPreview(templateBuffer, values, container);
-      } else {
-        await renderXlsxPreview(templateBuffer, values, container);
-      }
-    } catch (e) {
-      console.error('미리보기 렌더링 오류:', e);
-    }
-  }, [templateBuffer, selectedTemplate]);
+  }, [templateBuffer]);
 
   const handleFieldChange = (key: string, value: string) => {
-    setFieldValues(prev => ({ ...prev, [key]: value }));
+    const newValues = { ...fieldValuesRef.current, [key]: value };
+    fieldValuesRef.current = newValues;
+    setFieldValues(newValues);
+
+    if (renderTimerRef.current) clearTimeout(renderTimerRef.current);
+    renderTimerRef.current = setTimeout(() => {
+      renderPreview(fieldValuesRef.current);
+    }, 150);
   };
 
   const handleSave = async () => {
@@ -596,7 +601,8 @@ async function renderDocxPreview(
   values: Record<string, string>,
   container: HTMLElement
 ) {
-  const JSZip = (await import('jszip')).default;
+  const jszipModule = await import('jszip');
+  const JSZip = jszipModule.default ?? jszipModule;
   const { renderAsync } = await import('docx-preview');
 
   const zip = await JSZip.loadAsync(originalBuffer.slice(0));
@@ -660,7 +666,7 @@ async function renderXlsxPreview(
   const xlsxModule = await import('xlsx');
   const XLSX = xlsxModule.default ?? xlsxModule;
 
-  const wb = XLSX.read(new Uint8Array(originalBuffer), { type: 'array' });
+  const wb = XLSX.read(new Uint8Array(originalBuffer.slice(0)), { type: 'array' });
 
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
@@ -676,6 +682,8 @@ async function renderXlsxPreview(
         if (val !== cell.v) {
           cell.v = val;
           cell.w = val;
+          delete cell.h;
+          delete cell.r;
         }
       }
     }
