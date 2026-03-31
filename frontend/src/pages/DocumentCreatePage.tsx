@@ -657,7 +657,8 @@ async function renderXlsxPreview(
   values: Record<string, string>,
   container: HTMLElement
 ) {
-  const XLSX = (await import('xlsx')).default;
+  const xlsxModule = await import('xlsx');
+  const XLSX = xlsxModule.default ?? xlsxModule;
 
   const wb = XLSX.read(new Uint8Array(originalBuffer), { type: 'array' });
 

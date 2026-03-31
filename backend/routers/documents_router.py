@@ -1,6 +1,7 @@
 import io
 import re
 from typing import List
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -236,10 +237,11 @@ def download_template_file(
     data = minio_client.download_file(t.minio_object_key)
     if data is None:
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
+    encoded_name = quote(t.original_filename)
     return Response(
         content=data,
         media_type=_content_type(t.file_type),
-        headers={"Content-Disposition": f'attachment; filename="{t.original_filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"},
     )
 
 
@@ -356,8 +358,9 @@ def download_record_file(
     if data is None:
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
     file_type = r.template.file_type if r.template else (r.original_filename or "").rsplit(".", 1)[-1]
+    encoded_name = quote(r.original_filename or "document")
     return Response(
         content=data,
         media_type=_content_type(file_type),
-        headers={"Content-Disposition": f'attachment; filename="{r.original_filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"},
     )
