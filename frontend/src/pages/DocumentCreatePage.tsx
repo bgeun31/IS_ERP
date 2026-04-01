@@ -17,20 +17,22 @@ export default function DocumentCreatePage() {
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
   const [selectedId, setSelectedId] = useState<number | ''>('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [imageFiles, setImageFiles] = useState<Record<string, File>>({});
   const [title, setTitle] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [savedRecordId, setSavedRecordId] = useState<number | null>(null);
 
   // 파일 로딩
-  const [loadingProgress, setLoadingProgress] = useState(0);   // 0~100
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStage, setLoadingStage] = useState<'idle' | 'downloading' | 'rendering' | 'done'>('idle');
 
   const [templateBuffer, setTemplateBuffer] = useState<ArrayBuffer | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const renderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // 항상 최신 값을 참조하는 refs — stale closure 방지
+  // 항상 최신 값을 참조하는 refs
   const templateBufferRef = useRef<ArrayBuffer | null>(null);
   const selectedTemplateRef = useRef<DocumentTemplate | null>(null);
   const fieldValuesRef = useRef<Record<string, string>>({});
@@ -41,7 +43,6 @@ export default function DocumentCreatePage() {
 
   const selectedTemplate = templates.find(t => t.id === selectedId) ?? null;
 
-  // refs를 최신 state와 동기화
   useEffect(() => { templateBufferRef.current = templateBuffer; }, [templateBuffer]);
   useEffect(() => { selectedTemplateRef.current = selectedTemplate; }, [selectedTemplate]);
   useEffect(() => { fieldValuesRef.current = fieldValues; }, [fieldValues]);
@@ -60,19 +61,20 @@ export default function DocumentCreatePage() {
     setLoadingProgress(0);
     setSavedRecordId(null);
 
-    // 필드 초기화
     const tmpl = templates.find(t => t.id === selectedId);
     if (tmpl) {
       const init: Record<string, string> = {};
-      tmpl.variables.forEach(v => { init[v.key] = ''; });
+      tmpl.variables.forEach(v => {
+        if ((v.type ?? 'text') === 'text') init[v.key] = '';
+      });
       setFieldValues(init);
+      setImageFiles({});
     }
 
     api.get(`/documents/templates/${selectedId}/file`, {
       responseType: 'arraybuffer',
       onDownloadProgress: (event) => {
         if (event.total && event.total > 0) {
-          // 다운로드 진행률은 0~80%로 매핑 (나머지 20%는 렌더링용)
           const pct = Math.round((event.loaded / event.total) * 80);
           setLoadingProgress(pct);
         }
@@ -88,7 +90,6 @@ export default function DocumentCreatePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // refs를 통해 항상 최신 값을 읽으므로 stale closure 없음
   const renderPreview = async (values: Record<string, string>) => {
     const buffer = templateBufferRef.current;
     const template = selectedTemplateRef.current;
@@ -129,17 +130,32 @@ export default function DocumentCreatePage() {
     }, 150);
   };
 
+  const handleImageChange = (key: string, file: File | null) => {
+    setImageFiles(prev => {
+      const next = { ...prev };
+      if (file) {
+        next[key] = file;
+      } else {
+        delete next[key];
+      }
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     if (!selectedId || !title.trim()) return;
     setSaving(true);
     setSaveError('');
     setSavedRecordId(null);
     try {
-      const res = await createRecord({
-        template_id: selectedId as number,
-        title: title.trim(),
-        field_values: fieldValues,
-      });
+      const fd = new FormData();
+      fd.append('template_id', String(selectedId));
+      fd.append('title', title.trim());
+      fd.append('field_values', JSON.stringify(fieldValues));
+      for (const [key, file] of Object.entries(imageFiles)) {
+        fd.append(`img__${key}`, file);
+      }
+      const res = await createRecord(fd);
       setSavedRecordId(res.data.id);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };
@@ -172,6 +188,10 @@ export default function DocumentCreatePage() {
   const isLoading = loadingStage === 'downloading' || loadingStage === 'rendering';
   const loadingLabel = loadingStage === 'downloading' ? '파일 다운로드 중...' : '미리보기 렌더링 중...';
 
+  const filledCount =
+    Object.values(fieldValues).filter(v => v.trim()).length +
+    Object.keys(imageFiles).length;
+
   return (
     <Layout title="문서 작성">
       <div style={{ display: 'flex', height: 'calc(100vh - 120px)', gap: 0, overflow: 'hidden' }}>
@@ -186,10 +206,8 @@ export default function DocumentCreatePage() {
           background: '#f8fafc',
           overflow: 'hidden',
         }}>
-          {/* 스크롤 영역 */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 0' }}>
 
-            {/* ── 섹션: 템플릿 선택 ── */}
             <SectionHeader icon="🗂️" title="템플릿 선택" />
 
             <select
@@ -221,7 +239,6 @@ export default function DocumentCreatePage() {
               ))}
             </select>
 
-            {/* 선택된 템플릿 정보 카드 */}
             {selectedTemplate && (
               <div style={{
                 background: '#fff',
@@ -256,7 +273,6 @@ export default function DocumentCreatePage() {
 
             {selectedTemplate && (
               <>
-                {/* ── 섹션: 변수 입력 ── */}
                 {selectedTemplate.variables.length === 0 ? (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 8,
@@ -272,13 +288,16 @@ export default function DocumentCreatePage() {
                     <SectionHeader
                       icon="✏️"
                       title="변수 입력"
-                      badge={`${Object.values(fieldValues).filter(v => v.trim()).length} / ${selectedTemplate.variables.length}`}
+                      badge={`${filledCount} / ${selectedTemplate.variables.length}`}
                       hint="입력하면 미리보기가 실시간으로 반영됩니다"
                     />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
                       {selectedTemplate.variables.map(v => {
-                        const val = fieldValues[v.key] ?? '';
-                        const filled = val.trim().length > 0;
+                        const isImage = (v.type ?? 'text') === 'image';
+                        const val = isImage ? '' : (fieldValues[v.key] ?? '');
+                        const imageFile = isImage ? imageFiles[v.key] : undefined;
+                        const filled = isImage ? !!imageFile : val.trim().length > 0;
+
                         return (
                           <div key={v.key} style={{
                             background: '#fff',
@@ -289,9 +308,20 @@ export default function DocumentCreatePage() {
                           }}>
                             {/* 라벨 행 */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: '#4a5568' }}>
-                                {v.label}
-                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: '#4a5568' }}>
+                                  {v.label}
+                                </span>
+                                {isImage && (
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 600,
+                                    background: '#fef3c7', color: '#92400e',
+                                    padding: '1px 5px', borderRadius: 4,
+                                  }}>
+                                    이미지
+                                  </span>
+                                )}
+                              </div>
                               <span style={{
                                 fontSize: 11, fontFamily: 'monospace',
                                 background: '#edf2f7', color: '#718096',
@@ -300,34 +330,79 @@ export default function DocumentCreatePage() {
                                 {`{{${v.key}}}`}
                               </span>
                             </div>
-                            {/* 입력 행 */}
-                            <div style={{ position: 'relative' }}>
-                              <input
-                                style={{
-                                  width: '100%',
-                                  padding: '7px 32px 7px 10px',
-                                  border: '1.5px solid #e2e8f0',
-                                  borderRadius: 6,
-                                  fontSize: 13,
-                                  outline: 'none',
-                                  background: '#f8fafc',
-                                  color: '#1a202c',
-                                  transition: 'border-color 0.15s, box-shadow 0.15s',
-                                }}
-                                value={val}
-                                onChange={e => handleFieldChange(v.key, e.target.value)}
-                                placeholder={`${v.label} 입력`}
-                                disabled={isLoading}
-                                onFocus={e => { e.currentTarget.style.borderColor = '#3182ce'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(49,130,206,0.12)'; }}
-                                onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
-                              />
-                              {filled && (
-                                <span style={{
-                                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                                  color: '#38a169', fontSize: 14, fontWeight: 700,
-                                }}>✓</span>
-                              )}
-                            </div>
+
+                            {/* 입력 영역 */}
+                            {isImage ? (
+                              <div>
+                                <input
+                                  ref={el => { imageInputRefs.current[v.key] = el; }}
+                                  type="file"
+                                  accept="image/*"
+                                  style={{ display: 'none' }}
+                                  disabled={isLoading}
+                                  onChange={e => handleImageChange(v.key, e.target.files?.[0] ?? null)}
+                                />
+                                <div
+                                  onClick={() => !isLoading && imageInputRefs.current[v.key]?.click()}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    padding: '7px 10px',
+                                    border: `1.5px dashed ${imageFile ? '#9ae6b4' : '#cbd5e0'}`,
+                                    borderRadius: 6,
+                                    cursor: isLoading ? 'default' : 'pointer',
+                                    background: imageFile ? '#f0fff4' : '#f8fafc',
+                                    fontSize: 12,
+                                    color: imageFile ? '#276749' : '#a0aec0',
+                                    transition: 'all 0.15s',
+                                  }}
+                                >
+                                  <span style={{ fontSize: 16 }}>{imageFile ? '🖼️' : '📁'}</span>
+                                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {imageFile ? imageFile.name : '클릭하여 이미지 선택'}
+                                  </span>
+                                  {imageFile && (
+                                    <span
+                                      onClick={e => { e.stopPropagation(); handleImageChange(v.key, null); }}
+                                      style={{ color: '#e53e3e', fontWeight: 700, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}
+                                    >✕</span>
+                                  )}
+                                </div>
+                                {imageFile && <ImagePreview file={imageFile} />}
+                                <div style={{ marginTop: 4, fontSize: 11, color: '#a0aec0' }}>
+                                  출력 크기: {v.img_width}×{v.img_height}{v.img_unit ?? 'mm'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ position: 'relative' }}>
+                                <input
+                                  style={{
+                                    width: '100%',
+                                    padding: '7px 32px 7px 10px',
+                                    border: '1.5px solid #e2e8f0',
+                                    borderRadius: 6,
+                                    fontSize: 13,
+                                    outline: 'none',
+                                    background: '#f8fafc',
+                                    color: '#1a202c',
+                                    transition: 'border-color 0.15s, box-shadow 0.15s',
+                                  }}
+                                  value={val}
+                                  onChange={e => handleFieldChange(v.key, e.target.value)}
+                                  placeholder={`${v.label} 입력`}
+                                  disabled={isLoading}
+                                  onFocus={e => { e.currentTarget.style.borderColor = '#3182ce'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(49,130,206,0.12)'; }}
+                                  onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+                                />
+                                {filled && (
+                                  <span style={{
+                                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                                    color: '#38a169', fontSize: 14, fontWeight: 700,
+                                  }}>✓</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -428,8 +503,11 @@ export default function DocumentCreatePage() {
                         setSavedRecordId(null);
                         setTitle('');
                         const init: Record<string, string> = {};
-                        selectedTemplate.variables.forEach(v => { init[v.key] = ''; });
+                        selectedTemplate.variables.forEach(v => {
+                          if ((v.type ?? 'text') === 'text') init[v.key] = '';
+                        });
                         setFieldValues(init);
+                        setImageFiles({});
                       }}
                     >
                       새 문서 작성
@@ -453,21 +531,17 @@ export default function DocumentCreatePage() {
         {/* ── 오른쪽: 미리보기 ── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '0 0 24px 24px' }}>
           {!selectedId ? (
-            /* 템플릿 미선택 */
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, color: '#a0aec0' }}>
               <div style={{ fontSize: 64, marginBottom: 16 }}>📄</div>
               <div>왼쪽에서 템플릿을 선택하면 미리보기가 표시됩니다.</div>
             </div>
           ) : (
             <>
-              {/* 헤더 */}
               <div style={{ marginBottom: 12, fontSize: 13, color: '#718096', flexShrink: 0 }}>
-                미리보기 — 실제 출력 결과와 다소 다를 수 있습니다.
+                미리보기 — 실제 출력 결과와 다소 다를 수 있습니다. 이미지는 다운로드 파일에서 확인하세요.
               </div>
 
-              {/* 로딩 오버레이 (미리보기 컨테이너 위에 표시) */}
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-
                 {isLoading && (
                   <div style={{
                     position: 'absolute', inset: 0, zIndex: 10,
@@ -477,17 +551,12 @@ export default function DocumentCreatePage() {
                     borderRadius: 8,
                     gap: 16,
                   }}>
-                    {/* 아이콘 */}
                     <div style={{ fontSize: 40 }}>
                       {loadingStage === 'downloading' ? '⬇️' : '⚙️'}
                     </div>
-
-                    {/* 단계 라벨 */}
                     <div style={{ fontSize: 15, fontWeight: 600, color: '#2d3748' }}>
                       {loadingLabel}
                     </div>
-
-                    {/* 게이지 바 */}
                     <div style={{ width: 280 }}>
                       <div style={{
                         background: '#e2e8f0',
@@ -511,8 +580,6 @@ export default function DocumentCreatePage() {
                         <span style={{ fontWeight: 600, color: '#3182ce' }}>{loadingProgress}%</span>
                       </div>
                     </div>
-
-                    {/* 단계 인디케이터 — isLoading 블록 안에서 타입은 'downloading' | 'rendering' */}
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
                       <StepDot label="다운로드" active={loadingStage === 'downloading'} done={loadingStage === 'rendering'} />
                       <div style={{ width: 24, height: 1, background: '#cbd5e0' }} />
@@ -521,7 +588,6 @@ export default function DocumentCreatePage() {
                   </div>
                 )}
 
-                {/* 미리보기 컨테이너 — 항상 DOM에 존재 */}
                 <div
                   ref={previewRef}
                   style={{
@@ -594,6 +660,32 @@ function StepDot({ label, active, done }: { label: string; active: boolean; done
   );
 }
 
+// ── 이미지 썸네일 (object URL 생명주기 관리) ────────────────────────────────────
+
+function ImagePreview({ file }: { file: File }) {
+  const [url, setUrl] = React.useState('');
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt="preview"
+      style={{
+        marginTop: 6,
+        width: '100%',
+        maxHeight: 100,
+        objectFit: 'contain',
+        borderRadius: 4,
+        border: '1px solid #e2e8f0',
+      }}
+    />
+  );
+}
+
 // ── Word 미리보기 ──────────────────────────────────────────────────────────────
 
 async function renderDocxPreview(
@@ -610,6 +702,8 @@ async function renderDocxPreview(
   const xmlFile = zip.file('word/document.xml');
   if (xmlFile) {
     let xml = await xmlFile.async('string');
+    // Word가 플레이스홀더를 여러 run으로 분리하는 경우 먼저 병합
+    xml = mergeDocxRuns(xml);
     for (const [key, value] of Object.entries(values)) {
       if (!value) continue;
       const escaped = value
@@ -624,7 +718,6 @@ async function renderDocxPreview(
   const blob = await zip.generateAsync({ type: 'blob' });
   container.innerHTML = '';
 
-  // 페이지 구분용 CSS — 중복 주입 방지
   if (!document.getElementById('docx-viewer-style')) {
     const style = document.createElement('style');
     style.id = 'docx-viewer-style';
@@ -700,4 +793,42 @@ async function renderXlsxPreview(
     </style>
     <div class="xlsx-preview">${html}</div>
   `;
+}
+
+// ── DOCX run 병합 ──────────────────────────────────────────────────────────────
+// Word는 {{변수명}}을 여러 <w:r> run으로 분리해 저장하는 경우가 있음.
+// 같은 단락 내 연속된 run의 텍스트를 합쳐서 플레이스홀더를 복원한다.
+function mergeDocxRuns(xml: string): string {
+  // <w:p> 단락 단위로 처리
+  return xml.replace(/(<w:p[ >][\s\S]*?<\/w:p>)/g, (para) => {
+    // run 전체를 텍스트로 합친 뒤, {{...}} 가 걸쳐있으면 단락 내 텍스트를 재구성
+    const runPattern = /(<w:r[ >][\s\S]*?<\/w:r>)/g;
+    const runs = [...para.matchAll(runPattern)].map(m => m[1]);
+    if (runs.length === 0) return para;
+
+    // run에서 <w:t> 텍스트만 추출
+    const getText = (run: string) => {
+      const m = run.match(/<w:t[^>]*>([\s\S]*?)<\/w:t>/);
+      return m ? m[1] : '';
+    };
+
+    const combined = runs.map(getText).join('');
+    // 플레이스홀더가 분리됐을 가능성이 있을 때만 처리
+    if (!combined.includes('{{') && !combined.includes('}}')) return para;
+
+    // 첫 번째 run의 서식을 기준 run으로 사용하고, 텍스트 전체를 하나의 <w:t>로 합침
+    const firstRun = runs[0];
+    const rPrMatch = firstRun.match(/(<w:rPr[\s\S]*?<\/w:rPr>)/);
+    const rPr = rPrMatch ? rPrMatch[1] : '';
+    const mergedRun = `<w:r>${rPr}<w:t xml:space="preserve">${combined}</w:t></w:r>`;
+
+    // 단락에서 기존 run들을 병합된 run 하나로 교체
+    let result = para;
+    // 모든 run을 제거하고 첫 run 위치에 병합 run 삽입
+    const firstRunIndex = result.indexOf(runs[0]);
+    const lastRun = runs[runs.length - 1];
+    const lastRunEnd = result.indexOf(lastRun) + lastRun.length;
+    result = result.slice(0, firstRunIndex) + mergedRun + result.slice(lastRunEnd);
+    return result;
+  });
 }

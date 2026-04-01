@@ -63,8 +63,8 @@ export const getTemplateFile = (id: number) =>
 
 // Documents - Records
 export const getRecords = () => api.get<DocumentRecord[]>('/documents/records');
-export const createRecord = (data: { template_id: number; title: string; field_values: Record<string, string> }) =>
-  api.post<DocumentRecord>('/documents/records', data);
+export const createRecord = (formData: FormData) =>
+  api.post<DocumentRecord>('/documents/records', formData);
 export const deleteRecord = (id: number) => api.delete(`/documents/records/${id}`);
 export const getRecordFile = (id: number) =>
   api.get(`/documents/records/${id}/file`, { responseType: 'arraybuffer' });

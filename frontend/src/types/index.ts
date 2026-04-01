@@ -86,6 +86,10 @@ export interface UploadResponse {
 export interface DocumentVariable {
   key: string;
   label: string;
+  type?: 'text' | 'image';
+  img_width?: number | null;
+  img_height?: number | null;
+  img_unit?: 'mm' | 'cm' | null;
 }
 
 export interface DocumentTemplate {

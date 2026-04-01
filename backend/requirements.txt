@@ -12,3 +12,4 @@ pydantic-settings>=2.5.0
 python-docx>=1.1.2
 docxtpl>=0.19.0
 openpyxl>=3.1.5
+Pillow>=10.0.0

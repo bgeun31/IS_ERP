@@ -115,6 +115,10 @@ class UploadResponse(BaseModel):
 class DocumentVariableSchema(BaseModel):
     key: str
     label: str
+    type: str = "text"
+    img_width: Optional[float] = None
+    img_height: Optional[float] = None
+    img_unit: Optional[str] = "mm"
 
 
 class DocumentTemplateCreate(BaseModel):

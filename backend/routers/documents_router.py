@@ -1,9 +1,11 @@
 import io
+import json
 import re
+import zipfile
 from typing import List
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -12,7 +14,6 @@ from auth import get_current_user
 from database import get_db
 from models import DocumentRecord, DocumentTemplate, User
 from schemas import (
-    DocumentRecordCreate,
     DocumentRecordResponse,
     DocumentTemplateResponse,
     DocumentTemplateUpdate,
@@ -36,49 +37,103 @@ def _content_type(file_type: str) -> str:
 
 # ── 변수 추출 ────────────────────────────────────────────────────────────────
 
-def _extract_variables_docx(data: bytes) -> list[str]:
+def _extract_variables_docx(data: bytes) -> list[dict]:
     from docx import Document
 
     doc = Document(io.BytesIO(data))
-    variables: set[str] = set()
+    variables: dict[str, dict] = {}
+
+    def scan(text: str):
+        for m in _PLACEHOLDER_RE.finditer(text):
+            key = m.group(1).strip()
+            if key not in variables:
+                variables[key] = {"key": key, "label": key, "type": "text",
+                                  "img_width": None, "img_height": None}
 
     for para in doc.paragraphs:
-        for m in _PLACEHOLDER_RE.finditer(para.text):
-            variables.add(m.group(1).strip())
-
+        scan(para.text)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for para in cell.paragraphs:
-                    for m in _PLACEHOLDER_RE.finditer(para.text):
-                        variables.add(m.group(1).strip())
+                    scan(para.text)
 
-    return sorted(variables)
+    return sorted(variables.values(), key=lambda v: v["key"])
 
 
-def _extract_variables_xlsx(data: bytes) -> list[str]:
+def _extract_variables_xlsx(data: bytes) -> list[dict]:
     import openpyxl
 
     wb = openpyxl.load_workbook(io.BytesIO(data))
-    variables: set[str] = set()
+    variables: dict[str, dict] = {}
 
     for sheet in wb.worksheets:
         for row in sheet.iter_rows():
             for cell in row:
                 if cell.value and isinstance(cell.value, str):
                     for m in _PLACEHOLDER_RE.finditer(cell.value):
-                        variables.add(m.group(1).strip())
+                        key = m.group(1).strip()
+                        if key not in variables:
+                            variables[key] = {"key": key, "label": key, "type": "text",
+                                              "img_width": None, "img_height": None}
 
-    return sorted(variables)
+    return sorted(variables.values(), key=lambda v: v["key"])
 
 
 # ── 렌더링 ──────────────────────────────────────────────────────────────────
 
-def _render_docx(template_data: bytes, field_values: dict) -> bytes:
-    from docxtpl import DocxTemplate
+def _render_docx(
+    template_data: bytes,
+    field_values: dict,
+    image_files: dict[str, bytes] | None = None,
+    image_vars: list[dict] | None = None,
+) -> bytes:
+    from docxtpl import DocxTemplate, InlineImage
+    from docx.shared import Mm
 
     tpl = DocxTemplate(io.BytesIO(template_data))
-    tpl.render(field_values)
+    context = dict(field_values)
+
+    if image_files and image_vars:
+        def to_mm(val: float, unit: str) -> float:
+            return val * 10 if unit == "cm" else val
+
+        img_meta = {
+            v["key"]: (
+                to_mm(v["img_width"], v.get("img_unit") or "mm"),
+                to_mm(v["img_height"], v.get("img_unit") or "mm"),
+            )
+            for v in image_vars
+            if v.get("type") == "image"
+            and v.get("img_width") and v.get("img_height")
+        }
+        for key, (width_mm, height_mm) in img_meta.items():
+            img_data = image_files.get(key)
+            if not img_data:
+                continue
+            try:
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(io.BytesIO(img_data))
+                px_w = round(width_mm / 25.4 * 96)
+                px_h = round(height_mm / 25.4 * 96)
+                pil_img = pil_img.resize((px_w, px_h), PILImage.LANCZOS)
+                # convert first, then choose format based on final mode
+                if pil_img.mode not in ("RGB", "RGBA"):
+                    pil_img = pil_img.convert("RGB")
+                fmt = "PNG" if pil_img.mode == "RGBA" else "JPEG"
+                img_buf = io.BytesIO()
+                pil_img.save(img_buf, format=fmt)
+                img_buf.seek(0)
+            except ImportError:
+                # Pillow 미설치 시 원본 이미지를 그대로 사용
+                img_buf = io.BytesIO(img_data)
+                img_buf.seek(0)
+            except Exception:
+                img_buf = io.BytesIO(img_data)
+                img_buf.seek(0)
+            context[key] = InlineImage(tpl, img_buf, width=Mm(width_mm), height=Mm(height_mm))
+
+    tpl.render(context)
     output = io.BytesIO()
     tpl.save(output)
     return output.getvalue()
@@ -150,7 +205,7 @@ async def create_template(
     data = await file.read()
 
     try:
-        var_keys = (
+        variables = (
             _extract_variables_docx(data)
             if ext == "docx"
             else _extract_variables_xlsx(data)
@@ -169,7 +224,7 @@ async def create_template(
         original_filename=filename,
         minio_object_key=object_key,
         file_size=len(data),
-        variables=[{"key": k, "label": k} for k in var_keys],
+        variables=variables,
         created_by=current_user.id,
     )
     db.add(template)
@@ -205,7 +260,17 @@ def update_template(
     if body.description is not None:
         t.description = body.description
     if body.variables is not None:
-        t.variables = [{"key": v.key, "label": v.label} for v in body.variables]
+        t.variables = [
+            {
+                "key": v.key,
+                "label": v.label,
+                "type": v.type,
+                "img_width": v.img_width,
+                "img_height": v.img_height,
+                "img_unit": v.img_unit or "mm",
+            }
+            for v in body.variables
+        ]
     db.commit()
     db.refresh(t)
     return _template_to_response(t)
@@ -275,14 +340,33 @@ def list_records(
 
 
 @router.post("/records", response_model=DocumentRecordResponse)
-def create_record(
-    body: DocumentRecordCreate,
+async def create_record(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    t = db.query(DocumentTemplate).filter(DocumentTemplate.id == body.template_id).first()
+    form = await request.form()
+
+    try:
+        template_id = int(form["template_id"])
+        title = str(form["title"])
+        field_values = json.loads(str(form.get("field_values", "{}")))
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=422, detail=f"잘못된 요청: {e}")
+
+    t = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
+
+    known_image_keys = {
+        v["key"] for v in (t.variables or []) if v.get("type") == "image"
+    }
+    image_files: dict[str, bytes] = {}
+    for key, value in form.multi_items():
+        if key.startswith("img__") and hasattr(value, "read"):
+            var_key = key[5:]
+            if var_key in known_image_keys:
+                image_files[var_key] = await value.read()
 
     template_data = minio_client.download_file(t.minio_object_key)
     if template_data is None:
@@ -290,14 +374,14 @@ def create_record(
 
     try:
         rendered = (
-            _render_docx(template_data, body.field_values)
+            _render_docx(template_data, field_values, image_files, t.variables or [])
             if t.file_type == "docx"
-            else _render_xlsx(template_data, body.field_values)
+            else _render_xlsx(template_data, field_values)
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"문서 렌더링 오류: {e}")
 
-    safe_title = re.sub(r'[\\/*?:"<>|]', "_", body.title)
+    safe_title = re.sub(r'[\\/*?:"<>|]', "_", title)
     output_filename = f"{safe_title}.{t.file_type}"
     object_key = f"documents/records/{current_user.id}/{output_filename}"
 
@@ -306,8 +390,8 @@ def create_record(
 
     record = DocumentRecord(
         template_id=t.id,
-        title=body.title,
-        field_values=body.field_values,
+        title=title,
+        field_values=field_values,
         original_filename=output_filename,
         minio_object_key=object_key,
         file_size=len(rendered),

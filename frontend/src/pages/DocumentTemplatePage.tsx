@@ -174,9 +174,13 @@ export default function DocumentTemplatePage() {
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {t.variables.map(v => (
                           <span key={v.key} style={{
-                            background: '#edf2f7', borderRadius: 4, padding: '2px 6px', fontSize: 11,
+                            background: (v.type ?? 'text') === 'image' ? '#fef3c7' : '#edf2f7',
+                            borderRadius: 4, padding: '2px 6px', fontSize: 11,
+                            color: (v.type ?? 'text') === 'image' ? '#92400e' : undefined,
                           }}>
+                            {(v.type ?? 'text') === 'image' ? '🖼️ ' : ''}
                             {v.label !== v.key ? `${v.label} ({{${v.key}}})` : `{{${v.key}}}`}
+                            {(v.type ?? 'text') === 'image' && v.img_width ? ` ${v.img_width}×${v.img_height}${v.img_unit ?? 'mm'}` : ''}
                           </span>
                         ))}
                       </div>
@@ -262,26 +266,99 @@ export default function DocumentTemplatePage() {
 
             {editVars.length > 0 && (
               <div className="form-group">
-                <label className="form-label">변수 레이블 설정</label>
-                <p className="text-muted text-sm" style={{ marginBottom: 8 }}>입력 폼에 표시될 레이블을 지정하세요.</p>
-                {editVars.map((v, i) => (
-                  <div key={v.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ width: 140, fontSize: 13, color: '#4a5568', fontFamily: 'monospace', background: '#edf2f7', padding: '4px 8px', borderRadius: 4 }}>
-                      {`{{${v.key}}}`}
-                    </span>
-                    <span style={{ color: '#a0aec0' }}>→</span>
-                    <input
-                      className="form-control"
-                      style={{ flex: 1 }}
-                      value={v.label}
-                      onChange={e => {
-                        const next = [...editVars];
-                        next[i] = { ...next[i], label: e.target.value };
-                        setEditVars(next);
-                      }}
-                    />
-                  </div>
-                ))}
+                <label className="form-label">변수 설정</label>
+                <p className="text-muted text-sm" style={{ marginBottom: 8 }}>
+                  레이블과 타입을 지정하세요. 이미지 타입은 출력 크기(mm)를 입력하세요.
+                </p>
+                {editVars.map((v, i) => {
+                  const isImage = (v.type ?? 'text') === 'image';
+                  const update = (patch: Partial<typeof v>) => {
+                    const next = [...editVars];
+                    next[i] = { ...next[i], ...patch };
+                    setEditVars(next);
+                  };
+                  return (
+                    <div key={v.key} style={{
+                      marginBottom: 10, padding: '10px 12px',
+                      border: `1.5px solid ${isImage ? '#fbd38d' : '#e2e8f0'}`,
+                      borderRadius: 8, background: isImage ? '#fffbeb' : '#fafafa',
+                    }}>
+                      {/* 첫째 줄: 키 + 레이블 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isImage ? 8 : 0 }}>
+                        <span style={{
+                          fontSize: 12, fontFamily: 'monospace',
+                          background: '#edf2f7', color: '#4a5568',
+                          padding: '3px 7px', borderRadius: 4, flexShrink: 0,
+                        }}>
+                          {`{{${v.key}}}`}
+                        </span>
+                        <input
+                          className="form-control"
+                          style={{ flex: 1 }}
+                          placeholder="레이블"
+                          value={v.label}
+                          onChange={e => update({ label: e.target.value })}
+                        />
+                        {/* 타입 토글 */}
+                        <select
+                          style={{
+                            padding: '5px 8px', fontSize: 12, borderRadius: 6,
+                            border: '1.5px solid #cbd5e0', background: '#fff',
+                            color: isImage ? '#92400e' : '#4a5568',
+                            flexShrink: 0,
+                          }}
+                          value={v.type ?? 'text'}
+                          onChange={e => update({
+                            type: e.target.value as 'text' | 'image',
+                            img_width: e.target.value === 'image' ? (v.img_width ?? 100) : null,
+                            img_height: e.target.value === 'image' ? (v.img_height ?? 80) : null,
+                          })}
+                        >
+                          <option value="text">텍스트</option>
+                          <option value="image">이미지</option>
+                        </select>
+                      </div>
+                      {/* 이미지 크기 입력 */}
+                      {isImage && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 2 }}>
+                          <span style={{ fontSize: 11, color: '#718096', flexShrink: 0 }}>너비</span>
+                          <input
+                            type="number" min={0.1} step="any"
+                            style={{
+                              width: 72, padding: '4px 6px', fontSize: 12,
+                              border: '1.5px solid #cbd5e0', borderRadius: 5,
+                              textAlign: 'center',
+                            }}
+                            value={v.img_width ?? ''}
+                            onChange={e => update({ img_width: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                          />
+                          <span style={{ fontSize: 11, color: '#a0aec0' }}>× 높이</span>
+                          <input
+                            type="number" min={0.1} step="any"
+                            style={{
+                              width: 72, padding: '4px 6px', fontSize: 12,
+                              border: '1.5px solid #cbd5e0', borderRadius: 5,
+                              textAlign: 'center',
+                            }}
+                            value={v.img_height ?? ''}
+                            onChange={e => update({ img_height: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                          />
+                          <select
+                            style={{
+                              padding: '4px 6px', fontSize: 12, borderRadius: 5,
+                              border: '1.5px solid #cbd5e0', background: '#fff',
+                            }}
+                            value={v.img_unit ?? 'mm'}
+                            onChange={e => update({ img_unit: e.target.value as 'mm' | 'cm' })}
+                          >
+                            <option value="mm">mm</option>
+                            <option value="cm">cm</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
