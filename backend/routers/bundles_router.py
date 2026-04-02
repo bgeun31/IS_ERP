@@ -57,6 +57,14 @@ def _compact_date_yyMMdd(value: str | None) -> str:
     return raw
 
 
+def _compact_date_yyyyMMdd(value: str | None) -> str:
+    raw = str(value or "").strip()
+    match = re.search(r"(20\d{2})[/-](\d{2})[/-](\d{2})", raw)
+    if match:
+        return f"{match.group(1)}{match.group(2)}{match.group(3)}"
+    return raw
+
+
 def _resolve_output_name(item: TemplateBundleItem, field_values: dict) -> str:
     if item.display_name == "IDC 출입명단":
         return "IDC 출입명단"
@@ -74,6 +82,12 @@ def _resolve_output_name(item: TemplateBundleItem, field_values: dict) -> str:
         if compact_title:
             return f"납품확인서_{compact_title}"
         return "납품확인서"
+
+    if item.display_name == "보안장비 무결성체크":
+        compact_date = _compact_date_yyyyMMdd(field_values.get("검수일자") or field_values.get("입고일자"))
+        if compact_date:
+            return f"{compact_date}_보안장비_무결성체크_점검"
+        return "보안장비_무결성체크_점검"
 
     output_name = item.output_name_pattern or item.display_name
     for key, value in field_values.items():

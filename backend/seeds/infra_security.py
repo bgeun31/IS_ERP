@@ -83,7 +83,7 @@ TEMPLATE_DEFS = [
         "sample_file": "20260331_보안장비_무결성체크_점검.docx",
         "name": "보안장비 무결성체크 점검",
         "display_name": "보안장비 무결성체크",
-        "output_pattern": "{{검수일자}}_보안장비_무결성체크_점검",
+        "output_pattern": "20260331_보안장비_무결성체크_점검",
         "description": "어플라이언스 장비 무결성 점검 체크리스트",
     },
     {
