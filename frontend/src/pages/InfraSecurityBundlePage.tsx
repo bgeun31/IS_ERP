@@ -16,6 +16,14 @@ const SECTION_META: Record<string, { icon: string; title: string }> = {
   'IDC출입': { icon: '🚪', title: 'IDC 출입 인원' },
 };
 
+type AccessPerson = {
+  id: number;
+  company: string;
+  name: string;
+  position: string;
+  contact: string;
+};
+
 export default function InfraSecurityBundlePage() {
   const [bundle, setBundle] = useState<TemplateBundle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,6 +33,7 @@ export default function InfraSecurityBundlePage() {
   const [extractError, setExtractError] = useState('');
   const [extractResult, setExtractResult] = useState<BundlePurchaseOrderExtractResult | null>(null);
   const [autoFilledKeys, setAutoFilledKeys] = useState<Set<string>>(new Set());
+  const [accessPeople, setAccessPeople] = useState<AccessPerson[]>([createEmptyAccessPerson(1)]);
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
@@ -37,8 +46,11 @@ export default function InfraSecurityBundlePage() {
         if (infra) {
           setBundle(infra);
           const init: Record<string, string> = {};
-          infra.variables.forEach((v: BundleVariable) => { init[v.key] = ''; });
+          infra.variables
+            .filter((v: BundleVariable) => v.section !== 'IDC출입')
+            .forEach((v: BundleVariable) => { init[v.key] = ''; });
           setFieldValues(init);
+          setAccessPeople([createEmptyAccessPerson(1)]);
           setSelectedItems(new Set(infra.items.map((it: TemplateBundleItem) => it.id)));
         }
       })
@@ -47,6 +59,18 @@ export default function InfraSecurityBundlePage() {
 
   const handleFieldChange = (key: string, value: string) => {
     setFieldValues(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleAccessPersonChange = (id: number, key: keyof Omit<AccessPerson, 'id'>, value: string) => {
+    setAccessPeople(prev => prev.map(person => (person.id === id ? { ...person, [key]: value } : person)));
+  };
+
+  const handleAddAccessPerson = () => {
+    setAccessPeople(prev => [...prev, createEmptyAccessPerson(nextAccessPersonId(prev))]);
+  };
+
+  const handleRemoveAccessPerson = (id: number) => {
+    setAccessPeople(prev => (prev.length === 1 ? prev : prev.filter(person => person.id !== id)));
   };
 
   const handlePurchaseOrderExtract = async () => {
@@ -99,8 +123,14 @@ export default function InfraSecurityBundlePage() {
     }
   };
 
-  const filledCount = Object.values(fieldValues).filter(v => v.trim()).length;
-  const totalCount = bundle?.variables.length ?? 0;
+  const nonIdcVariables = bundle?.variables.filter(v => v.section !== 'IDC출입') ?? [];
+  const filledBaseCount = nonIdcVariables.filter(v => (fieldValues[v.key] || '').trim()).length;
+  const filledAccessCount = accessPeople.reduce(
+    (count, person) => count + ['company', 'name', 'position', 'contact'].filter(key => person[key as keyof Omit<AccessPerson, 'id'>].trim()).length,
+    0,
+  );
+  const filledCount = filledBaseCount + filledAccessCount;
+  const totalCount = nonIdcVariables.length + accessPeople.length * 4;
 
   const handleGenerate = async () => {
     if (!bundle) return;
@@ -110,7 +140,7 @@ export default function InfraSecurityBundlePage() {
 
     try {
       const formData = new FormData();
-      formData.append('field_values', JSON.stringify(fieldValues));
+      formData.append('field_values', JSON.stringify(buildSubmissionFieldValues(fieldValues, accessPeople)));
       formData.append('selected_items', JSON.stringify([...selectedItems]));
 
       const res = await generateBundle(bundle.id, formData);
@@ -135,12 +165,15 @@ export default function InfraSecurityBundlePage() {
   const handleReset = () => {
     if (!bundle) return;
     const init: Record<string, string> = {};
-    bundle.variables.forEach(v => { init[v.key] = ''; });
+    bundle.variables
+      .filter(v => v.section !== 'IDC출입')
+      .forEach(v => { init[v.key] = ''; });
     setFieldValues(init);
     setPurchaseOrderFile(null);
     setExtractError('');
     setExtractResult(null);
     setAutoFilledKeys(new Set());
+    setAccessPeople([createEmptyAccessPerson(1)]);
     setSelectedItems(new Set(bundle.items.map(it => it.id)));
     setSuccess(false);
     setError('');
@@ -331,16 +364,103 @@ export default function InfraSecurityBundlePage() {
                       color: '#718096', background: '#edf2f7',
                       padding: '2px 8px', borderRadius: 12,
                     }}>
-                      {vars.filter(v => fieldValues[v.key]?.trim()).length} / {vars.length}
+                      {section === 'IDC출입'
+                        ? `${filledAccessCount} / ${accessPeople.length * 4}`
+                        : `${vars.filter(v => fieldValues[v.key]?.trim()).length} / ${vars.length}`}
                     </span>
                   </div>
 
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: section === 'IDC출입' ? '1fr 1fr' : vars.some(v => v.key === '발주명') ? '1fr' : '1fr 1fr',
+                    gridTemplateColumns: vars.some(v => v.key === '발주명') ? '1fr' : '1fr 1fr',
                     gap: '10px 16px',
                   }}>
-                    {vars.map(v => {
+                    {section === 'IDC출입' ? accessPeople.map((person, index) => (
+                      <div
+                        key={person.id}
+                        style={{
+                          gridColumn: '1 / -1',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 10,
+                          padding: '14px',
+                          background: '#f8fafc',
+                        }}
+                      >
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 12,
+                        }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#2d3748' }}>
+                            출입 인원 {index + 1}
+                          </div>
+                          {accessPeople.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAccessPerson(person.id)}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#c53030',
+                                cursor: 'pointer',
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              삭제
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr',
+                          gap: '10px 16px',
+                        }}>
+                          {[
+                            { key: 'company', label: '회사명' },
+                            { key: 'name', label: '이름' },
+                            { key: 'position', label: '직책' },
+                            { key: 'contact', label: '연락처' },
+                          ].map(field => (
+                            <div key={field.key}>
+                              <label style={{
+                                display: 'block',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                color: '#4a5568',
+                                marginBottom: 4,
+                              }}>
+                                {field.label}
+                              </label>
+                              <input
+                                type="text"
+                                value={person[field.key as keyof Omit<AccessPerson, 'id'>]}
+                                onChange={e => handleAccessPersonChange(
+                                  person.id,
+                                  field.key as keyof Omit<AccessPerson, 'id'>,
+                                  e.target.value,
+                                )}
+                                placeholder={getAccessPlaceholder(field.key, index)}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: '1px solid #e2e8f0',
+                                  borderRadius: 6,
+                                  fontSize: 13,
+                                  outline: 'none',
+                                  boxSizing: 'border-box',
+                                  background: '#fff',
+                                }}
+                                onFocus={e => e.target.style.borderColor = '#3182ce'}
+                                onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )) : vars.map(v => {
                       const isWide = v.key === '발주명';
                       const isAutoFilled = autoFilledKeys.has(v.key) && !!fieldValues[v.key]?.trim();
                       return (
@@ -393,6 +513,25 @@ export default function InfraSecurityBundlePage() {
                       );
                     })}
                   </div>
+                  {section === 'IDC출입' && (
+                    <button
+                      type="button"
+                      onClick={handleAddAccessPerson}
+                      style={{
+                        marginTop: 12,
+                        padding: '10px 14px',
+                        borderRadius: 8,
+                        border: '1px dashed #90cdf4',
+                        background: '#f7fbff',
+                        color: '#2c5282',
+                        cursor: 'pointer',
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      + 출입 인원 추가
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -599,4 +738,39 @@ function getPlaceholder(key: string): string {
     '출입자2_연락처': '010-8961-3488',
   };
   return map[key] || '';
+}
+
+function createEmptyAccessPerson(id: number): AccessPerson {
+  return { id, company: '', name: '', position: '', contact: '' };
+}
+
+function nextAccessPersonId(people: AccessPerson[]): number {
+  return people.reduce((maxId, person) => Math.max(maxId, person.id), 0) + 1;
+}
+
+function buildSubmissionFieldValues(fieldValues: Record<string, string>, accessPeople: AccessPerson[]) {
+  const nextValues: Record<string, unknown> = { ...fieldValues };
+  accessPeople.forEach((person, index) => {
+    const personNumber = index + 1;
+    nextValues[`출입자${personNumber}_회사명`] = person.company;
+    nextValues[`출입자${personNumber}_이름`] = person.name;
+    nextValues[`출입자${personNumber}_직책`] = person.position;
+    nextValues[`출입자${personNumber}_연락처`] = person.contact;
+  });
+  nextValues.__idc_access_people = accessPeople.map(({ company, name, position, contact }) => ({
+    company,
+    name,
+    position,
+    contact,
+  }));
+  return nextValues;
+}
+
+function getAccessPlaceholder(key: string, index: number): string {
+  const samples = [
+    { company: '아이클라우드', name: '이원재', position: '과장', contact: '010-3618-7518' },
+    { company: '아이클라우드', name: '송봉근', position: '사원', contact: '010-8961-3488' },
+  ];
+  const sample = samples[index] || samples[samples.length - 1];
+  return sample[key as keyof typeof sample] || '';
 }

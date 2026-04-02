@@ -2,6 +2,7 @@ import io
 import json
 import re
 import zipfile
+from copy import copy
 from typing import List
 from urllib.parse import quote
 
@@ -89,13 +90,102 @@ def _render_docx(template_data: bytes, field_values: dict) -> bytes:
 
 
 def _render_xlsx(template_data: bytes, field_values: dict) -> bytes:
-    replacements = {f"{{{{{key}}}}}": value for key, value in field_values.items()}
+    replacements = {
+        f"{{{{{key}}}}}": value
+        for key, value in field_values.items()
+        if isinstance(value, (str, int, float)) or value is None
+    }
     return replace_text_in_office_package(
         template_data,
         replacements,
         xml_prefixes=("xl/",),
         escape_xml=True,
     )
+
+
+def _extract_idc_access_people(field_values: dict) -> list[dict[str, str]]:
+    people = field_values.get("__idc_access_people")
+    if isinstance(people, list):
+        normalized = []
+        for person in people:
+            if not isinstance(person, dict):
+                continue
+            normalized.append(
+                {
+                    "company": str(person.get("company", "") or ""),
+                    "name": str(person.get("name", "") or ""),
+                    "position": str(person.get("position", "") or ""),
+                    "contact": str(person.get("contact", "") or ""),
+                }
+            )
+        if normalized:
+            return normalized
+
+    fallback = []
+    for idx in range(1, 100):
+        company = str(field_values.get(f"출입자{idx}_회사명", "") or "")
+        name = str(field_values.get(f"출입자{idx}_이름", "") or "")
+        position = str(field_values.get(f"출입자{idx}_직책", "") or "")
+        contact = str(field_values.get(f"출입자{idx}_연락처", "") or "")
+        if not any([company, name, position, contact]):
+            if idx > 2:
+                break
+            continue
+        fallback.append(
+            {
+                "company": company,
+                "name": name,
+                "position": position,
+                "contact": contact,
+            }
+        )
+
+    return fallback or [{"company": "", "name": "", "position": "", "contact": ""}]
+
+
+def _copy_row_style(ws, source_row: int, target_row: int, max_col: int = 5):
+    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+    for col in range(1, max_col + 1):
+        source = ws.cell(source_row, col)
+        target = ws.cell(target_row, col)
+        target._style = copy(source._style)
+        target.font = copy(source.font)
+        target.fill = copy(source.fill)
+        target.border = copy(source.border)
+        target.alignment = copy(source.alignment)
+        target.number_format = source.number_format
+        target.protection = copy(source.protection)
+
+
+def _render_idc_access_xlsx(template_data: bytes, field_values: dict) -> bytes:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(template_data))
+    ws = wb.active
+    people = _extract_idc_access_people(field_values)
+    start_row = 7
+    end_row = max(18, start_row + len(people) - 1)
+
+    for row in range(start_row, end_row + 1):
+        _copy_row_style(ws, 7 if row == 7 else 8, row)
+        for col in range(1, 6):
+            ws.cell(row, col).value = ""
+
+    for idx, person in enumerate(people):
+        row = start_row + idx
+        ws.cell(row, 1).value = ""
+        ws.cell(row, 2).value = person["company"]
+        ws.cell(row, 3).value = person["name"]
+        ws.cell(row, 4).value = person["position"]
+        ws.cell(row, 5).value = person["contact"]
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def _is_dynamic_idc_key(key: str) -> bool:
+    return bool(re.fullmatch(r"출입자\d+_(회사명|이름|직책|연락처)", key))
 
 
 @router.post("/{bundle_id}/purchase-order/extract", response_model=BundlePurchaseOrderExtractResponse)
@@ -139,7 +229,11 @@ async def extract_purchase_order(
 
     extracted_keys = [key for key in parsed["extracted_keys"] if not bundle_keys or key in bundle_keys]
     inferred_keys = [key for key in parsed["inferred_keys"] if not bundle_keys or key in bundle_keys]
-    missing_keys = sorted(bundle_keys - set(field_values.keys())) if bundle_keys else []
+    missing_keys = (
+        sorted(key for key in (bundle_keys - set(field_values.keys())) if not _is_dynamic_idc_key(key))
+        if bundle_keys
+        else []
+    )
 
     return BundlePurchaseOrderExtractResponse(
         filename=filename,
@@ -190,7 +284,9 @@ async def generate_bundle(
                 continue
 
             try:
-                if tpl.file_type == "docx":
+                if item.display_name == "IDC 출입명단" and tpl.file_type == "xlsx":
+                    rendered = _render_idc_access_xlsx(template_data, field_values)
+                elif tpl.file_type == "docx":
                     rendered = _render_docx(template_data, field_values)
                 else:
                     rendered = _render_xlsx(template_data, field_values)
