@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from auth import get_admin_user, get_current_user, get_password_hash
+from config import settings
 from database import get_db
 from models import User
 from schemas import UserCreate, UserDirectoryResponse, UserResponse, UserUpdate
@@ -24,7 +25,7 @@ def list_user_directory(
 ):
     return (
         db.query(User)
-        .filter(User.is_admin.is_(False))
+        .filter(User.username != settings.ADMIN_USERNAME)
         .order_by(User.full_name.is_(None), User.full_name, User.username)
         .all()
     )
