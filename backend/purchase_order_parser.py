@@ -122,6 +122,13 @@ def _extract_maintenance_quantity(item_names: list[str], item_blocks: list[dict[
     return None
 
 
+def _extract_delivery_location_hint(text: str) -> str | None:
+    match = re.search(r"입고\s*IDC\s*:\s*([^\n]+)", text)
+    if not match:
+        return None
+    return _normalize_space(match.group(1))
+
+
 def _calc_maintenance_end_date(base_years: int, additional_years: int) -> str:
     today = date.today()
     target_year = today.year + base_years + additional_years
@@ -177,6 +184,7 @@ def parse_purchase_order_pdf(data: bytes) -> dict:
     maintenance_years = _extract_maintenance_years(item_names)
     maintenance_quantity = _extract_maintenance_quantity(item_names, item_blocks)
     purchase_order_name = _extract_purchase_order_name(lines)
+    delivery_location_hint = _extract_delivery_location_hint(text)
 
     field_values: dict[str, str] = {}
     extracted_keys: list[str] = []
@@ -205,6 +213,7 @@ def parse_purchase_order_pdf(data: bytes) -> dict:
     assign("수량", first_item_values.get("수량"))
     assign("제조사", first_item_values.get("제조사"))
     assign("납품장소", first_item_values.get("납품장소"))
+    assign("유지보수수량", str(maintenance_quantity) if maintenance_quantity else None, inferred=True)
 
     supplier = _first_match(text, r"공급하는 자 \(제공자\)\s*상호\s*([^\n]+)")
     assign("공급사", supplier)
@@ -214,6 +223,14 @@ def parse_purchase_order_pdf(data: bytes) -> dict:
     if field_values.get("납품기한") and not field_values.get("입고일자"):
         assign("입고일자", field_values["납품기한"], inferred=True)
         warnings.append("입고일자는 발주서의 납품기한 값을 기준으로 먼저 채웠습니다.")
+
+    if (not field_values.get("납품장소") or field_values.get("납품장소") == "기타") and delivery_location_hint:
+        assign("납품장소", delivery_location_hint, inferred=True)
+        warnings.append("납품장소는 발주서의 '입고 IDC' 안내 문구를 기준으로 보완했습니다.")
+
+    if field_values.get("입고일자") and not field_values.get("검수일자"):
+        assign("검수일자", field_values["입고일자"], inferred=True)
+        warnings.append("검수일자는 별도 표기가 없어 입고일자와 동일하게 먼저 채웠습니다.")
 
     maintenance_term = maintenance_years or 0
     maintenance_count = maintenance_quantity or 0

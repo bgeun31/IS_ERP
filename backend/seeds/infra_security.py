@@ -36,6 +36,32 @@ REPLACEMENTS = {
     "2027-03-31": "{{유지보수종료일}}",
 }
 
+DOCX_TEXT_REPLACEMENTS = [
+    ("[베트남 하노이 센터] Extreme 7520 스위치 1대 구매 건", "{{발주명}}"),
+    ("PO-20260319-0043", "{{발주번호}}"),
+    ("2026/ 03 /19", "{{발주일자_슬래시공백}}"),
+    ("2026/ 03 /30", "{{입고일자_슬래시공백}}"),
+    ("2026/ 03 /31", "{{검수일자_슬래시공백}}"),
+    ("2026/ 03/31", "{{검수일자_슬래시공백}}"),
+    ("2026/03/19", "{{발주일자}}"),
+    ("2026/03/30", "{{입고일자}}"),
+    ("2026/03/31", "{{검수일자}}"),
+    ("2026년 03월 19일", "{{발주일자_한글}}"),
+    ("2026년 03월 30일", "{{입고일자_한글}}"),
+    ("2026년 03월 31일", "{{검수일자_한글}}"),
+    ("2026 년 03 월 31 일", "{{검수일자_한글띄어쓰기}}"),
+    ("03/31/2026", "{{검수일자_US}}"),
+    ("가산2\nIDC", "{{납품장소}}"),
+    ("가산2 IDC", "{{납품장소}}"),
+    ("가산2", "{{납품장소}}"),
+    ("아이클라우드 주식회사", "{{공급사}}"),
+    ("아이클라우드", "{{공급사_약칭}}"),
+    ("7520-48Y-8C-AC-F 1식", "{{모델명}} {{수량}}ea"),
+    ("1ea", "{{수량}}ea"),
+    ("SM022609Q-40056", "{{시리얼번호}}"),
+    ("7520-48Y-8C-AC-F", "{{모델명}}"),
+]
+
 BUNDLE_VARIABLES = [
     {"key": "발주번호", "label": "발주번호 (PO#)", "type": "text", "section": "발주정보"},
     {"key": "발주명", "label": "발주명", "type": "text", "section": "발주정보"},
@@ -52,6 +78,7 @@ BUNDLE_VARIABLES = [
     {"key": "공급사", "label": "공급사 (정식명칭)", "type": "text", "section": "납품검수"},
     {"key": "공급사_약칭", "label": "공급사 (약칭)", "type": "text", "section": "납품검수"},
     {"key": "공급사담당자", "label": "공급사 담당자", "type": "text", "section": "납품검수"},
+    {"key": "유지보수수량", "label": "유지보수 수량", "type": "text", "section": "유지보수"},
     {"key": "유지보수종료일", "label": "유지보수 종료일", "type": "text", "section": "유지보수"},
     {"key": "출입자1_회사명", "label": "출입자1 회사명", "type": "text", "section": "IDC출입"},
     {"key": "출입자1_이름", "label": "출입자1 이름", "type": "text", "section": "IDC출입"},
@@ -136,12 +163,49 @@ def _replace_in_paragraph(paragraph, replacements: dict) -> bool:
     return changed
 
 
+def _iter_table_paragraphs(table):
+    for row in table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                yield paragraph
+            for nested_table in cell.tables:
+                yield from _iter_table_paragraphs(nested_table)
+
+
+def _iter_doc_paragraphs(doc):
+    for paragraph in doc.paragraphs:
+        yield paragraph
+    for table in doc.tables:
+        yield from _iter_table_paragraphs(table)
+    for section in doc.sections:
+        for paragraph in section.header.paragraphs:
+            yield paragraph
+        for table in section.header.tables:
+            yield from _iter_table_paragraphs(table)
+        for paragraph in section.footer.paragraphs:
+            yield paragraph
+        for table in section.footer.tables:
+            yield from _iter_table_paragraphs(table)
+
+
 def _create_docx_template(sample_path: str, replacements: dict) -> bytes:
     """DOCX 샘플 파일을 열어 특정 값을 {{변수}}로 치환한 뒤 bytes 반환."""
-    data = Path(sample_path).read_bytes()
+    from docx import Document
+
+    doc = Document(sample_path)
+    ordered_replacements = dict(DOCX_TEXT_REPLACEMENTS)
+
+    for paragraph in _iter_doc_paragraphs(doc):
+        _replace_in_paragraph(paragraph, ordered_replacements)
+
+    output = io.BytesIO()
+    doc.save(output)
+
+    package_replacements = dict(DOCX_TEXT_REPLACEMENTS)
+    package_replacements.update(replacements)
     return replace_text_in_office_package(
-        data,
-        replacements,
+        output.getvalue(),
+        package_replacements,
         xml_prefixes=("word/",),
         escape_xml=False,
     )
@@ -314,18 +378,57 @@ def _set_sheet_cell(ws, row: int, col: int, value: str) -> None:
 
 def _apply_delivery_confirmation_placeholders(xlsx_data: bytes) -> bytes:
     import openpyxl
+    from openpyxl.styles import Alignment, Border, PatternFill, Side
 
     wb = openpyxl.load_workbook(io.BytesIO(xlsx_data))
     ws = wb.active
-    _set_sheet_cell(ws, 7, 3, "{{입고일자}}")
+    thin = Side(style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    ws.column_dimensions["G"].width = 4
+    ws.column_dimensions["H"].width = 14
+    ws.column_dimensions["I"].width = 14
+    ws.column_dimensions["J"].width = 14
+    ws.column_dimensions["K"].width = 14
+
+    _set_sheet_cell(ws, 7, 3, "{{입고일자_대시}}")
     _set_sheet_cell(ws, 11, 3, "{{발주명}}")
     _set_sheet_cell(ws, 15, 3, "{{모델명}}")
     _set_sheet_cell(ws, 15, 4, "{{시리얼번호}}")
     _set_sheet_cell(ws, 15, 5, "{{수량}}")
     _set_sheet_cell(ws, 16, 5, "{{수량}}")
     _set_sheet_cell(ws, 17, 5, "{{수량}}")
-    _set_sheet_cell(ws, 18, 5, "{{수량}}")
-    _set_sheet_cell(ws, 32, 5, "{{입고일자}}")
+    _set_sheet_cell(ws, 18, 5, "{{유지보수수량}}")
+    _set_sheet_cell(ws, 32, 5, "{{입고일자_한글여백}}")
+
+    ws.merge_cells("G5:G11")
+    supplier_title = ws["G5"]
+    supplier_title.value = "공\n급\n자"
+    supplier_title.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    supplier_title.fill = PatternFill(fill_type="solid", fgColor="B7E6E6")
+    supplier_title.border = border
+
+    supplier_rows = [
+        ("등록번호", "528-87-01823"),
+        ("상   호", "{{공급사}}"),
+        ("주   소", "서울 영등포구 영등포로50"),
+        ("대표자", "임재원"),
+        ("업태/종목", "제조업/통신판매업"),
+        ("회사전화", "02-2637-0903"),
+        ("회사팩스", "02-2637-0904"),
+    ]
+    for offset, (label, value) in enumerate(supplier_rows):
+        row = 5 + offset
+        ws.merge_cells(start_row=row, start_column=8, end_row=row, end_column=9)
+        ws.merge_cells(start_row=row, start_column=10, end_row=row, end_column=11)
+        label_cell = ws.cell(row=row, column=8)
+        value_cell = ws.cell(row=row, column=10)
+        label_cell.value = label
+        value_cell.value = value
+        label_cell.alignment = Alignment(horizontal="center", vertical="center")
+        value_cell.alignment = Alignment(horizontal="center", vertical="center")
+        for col in range(8, 12):
+            ws.cell(row=row, column=col).border = border
 
     buf = io.BytesIO()
     wb.save(buf)

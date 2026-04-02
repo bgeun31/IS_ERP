@@ -65,6 +65,14 @@ def _compact_date_yyyyMMdd(value: str | None) -> str:
     return raw
 
 
+def _split_date_parts(value: str | None) -> tuple[str, str, str] | None:
+    raw = str(value or "").strip()
+    match = re.search(r"(20\d{2})[/-](\d{1,2})[/-](\d{1,2})", raw)
+    if not match:
+        return None
+    return match.group(1), f"{int(match.group(2)):02d}", f"{int(match.group(3)):02d}"
+
+
 def _resolve_output_name(item: TemplateBundleItem, field_values: dict) -> str:
     if item.display_name == "IDC 출입명단":
         return "IDC 출입명단"
@@ -141,34 +149,30 @@ def get_bundle(
 def _render_docx(template_data: bytes, field_values: dict) -> bytes:
     from docx import Document
 
-    serial_numbers = _extract_serial_numbers(field_values)
     doc = Document(io.BytesIO(template_data))
-
-    if len(serial_numbers) > 1:
-        _expand_docx_serial_rows(doc, serial_numbers)
 
     output = io.BytesIO()
     doc.save(output)
 
     return replace_text_in_office_package(
         output.getvalue(),
-        _build_scalar_replacements(field_values),
+        _build_scalar_replacements(field_values, serial_separator=", "),
         xml_prefixes=("word/",),
         escape_xml=True,
     )
 
 
-def _render_xlsx(template_data: bytes, field_values: dict) -> bytes:
+def _render_xlsx(template_data: bytes, field_values: dict, *, expand_serial_rows: bool = True) -> bytes:
     import openpyxl
 
     wb = openpyxl.load_workbook(io.BytesIO(template_data))
     serial_numbers = _extract_serial_numbers(field_values)
 
-    if len(serial_numbers) > 1:
+    if expand_serial_rows and len(serial_numbers) > 1:
         for ws in wb.worksheets:
             _expand_xlsx_serial_rows(ws, serial_numbers)
 
-    scalar_replacements = _build_scalar_replacements(field_values)
+    scalar_replacements = _build_scalar_replacements(field_values, serial_separator="\n")
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:
@@ -206,7 +210,7 @@ def _extract_serial_numbers(field_values: dict) -> list[str]:
     return [str(field_values.get("시리얼번호", "") or "").strip()]
 
 
-def _build_scalar_replacements(field_values: dict) -> dict[str, object]:
+def _build_scalar_replacements(field_values: dict, *, serial_separator: str) -> dict[str, object]:
     scalar_values = {
         key: value
         for key, value in field_values.items()
@@ -216,13 +220,25 @@ def _build_scalar_replacements(field_values: dict) -> dict[str, object]:
     filled_serials = [serial for serial in serial_numbers if serial]
 
     if filled_serials:
-        scalar_values["시리얼번호"] = "\n".join(filled_serials)
+        scalar_values["시리얼번호"] = serial_separator.join(filled_serials)
     else:
         scalar_values.setdefault("시리얼번호", "")
 
     for idx, serial in enumerate(serial_numbers, 1):
         scalar_values[f"시리얼번호{idx}"] = serial
         scalar_values[f"시리얼번호_{idx}"] = serial
+
+    for key in ("발주일자", "입고일자", "검수일자", "유지보수종료일"):
+        parts = _split_date_parts(scalar_values.get(key))
+        if not parts:
+            continue
+        year, month, day = parts
+        scalar_values[f"{key}_대시"] = f"{year}-{month}-{day}"
+        scalar_values[f"{key}_슬래시공백"] = f"{year}/ {month} /{day}"
+        scalar_values[f"{key}_한글"] = f"{year}년 {month}월 {day}일"
+        scalar_values[f"{key}_한글띄어쓰기"] = f"{year} 년 {month} 월 {day} 일"
+        scalar_values[f"{key}_한글여백"] = f"{year}년   {int(month)}월    {int(day)}일"
+        scalar_values[f"{key}_US"] = f"{month}/{day}/{year}"
 
     return {f"{{{{{key}}}}}": value for key, value in scalar_values.items()}
 
@@ -488,7 +504,11 @@ async def generate_bundle(
                 elif tpl.file_type == "docx":
                     rendered = _render_docx(template_data, field_values)
                 else:
-                    rendered = _render_xlsx(template_data, field_values)
+                    rendered = _render_xlsx(
+                        template_data,
+                        field_values,
+                        expand_serial_rows=item.display_name != "납품확인서",
+                    )
             except Exception as e:
                 print(f"[Bundle] 렌더링 오류 ({item.display_name}): {e}")
                 continue
