@@ -84,6 +84,8 @@ export const createTemplate = (formData: FormData) =>
 export const updateTemplate = (id: number, data: { name?: string; description?: string; variables?: DocumentVariable[] }) =>
   api.put<DocumentTemplate>(`/documents/templates/${id}`, data);
 export const deleteTemplate = (id: number) => api.delete(`/documents/templates/${id}`);
+export const replaceTemplateFile = (id: number, formData: FormData) =>
+  api.post<DocumentTemplate>(`/documents/templates/${id}/file`, formData);
 export const getTemplateFile = (id: number) =>
   api.get(`/documents/templates/${id}/file`, { responseType: 'arraybuffer' });
 

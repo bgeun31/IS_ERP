@@ -33,6 +33,8 @@ XLSX_CONTENT_TYPE = (
 XLSM_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.12"
 XLS_CONTENT_TYPE = "application/vnd.ms-excel"
 
+SUPPORTED_TEMPLATE_EXTENSIONS = {"docx", "xlsx", "xlsm", "xls"}
+
 
 def _content_type(file_type: str) -> str:
     return {
@@ -41,6 +43,18 @@ def _content_type(file_type: str) -> str:
         "xlsm": XLSM_CONTENT_TYPE,
         "xls": XLS_CONTENT_TYPE,
     }.get(file_type, "application/octet-stream")
+
+
+def _extract_variables_for_extension(ext: str, data: bytes) -> list[dict]:
+    if ext == "docx":
+        return _extract_variables_docx(data)
+    if ext == "xlsx":
+        return _extract_variables_xlsx(data)
+    if ext == "xlsm":
+        return _extract_variables_xlsm(data)
+    if ext == "xls":
+        return _extract_variables_xls(data)
+    raise ValueError(f"지원하지 않는 파일 형식입니다: {ext}")
 
 
 # ── 변수 추출 ────────────────────────────────────────────────────────────────
@@ -84,6 +98,46 @@ def _extract_variables_xlsx(data: bytes) -> list[dict]:
                         if key not in variables:
                             variables[key] = {"key": key, "label": key, "type": "text",
                                               "img_width": None, "img_height": None}
+
+    return sorted(variables.values(), key=lambda v: v["key"])
+
+
+def _extract_variables_xlsm(data: bytes) -> list[dict]:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(data), keep_vba=True)
+    variables: dict[str, dict] = {}
+
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value and isinstance(cell.value, str):
+                    for m in _PLACEHOLDER_RE.finditer(cell.value):
+                        key = m.group(1).strip()
+                        if key not in variables:
+                            variables[key] = {"key": key, "label": key, "type": "text",
+                                              "img_width": None, "img_height": None}
+
+    return sorted(variables.values(), key=lambda v: v["key"])
+
+
+def _extract_variables_xls(data: bytes) -> list[dict]:
+    import xlrd
+
+    wb = xlrd.open_workbook(file_contents=data, formatting_info=True)
+    variables: dict[str, dict] = {}
+
+    for sheet in wb.sheets():
+        for row_idx in range(sheet.nrows):
+            for col_idx in range(sheet.ncols):
+                value = sheet.cell_value(row_idx, col_idx)
+                if not isinstance(value, str):
+                    continue
+                for m in _PLACEHOLDER_RE.finditer(value):
+                    key = m.group(1).strip()
+                    if key not in variables:
+                        variables[key] = {"key": key, "label": key, "type": "text",
+                                          "img_width": None, "img_height": None}
 
     return sorted(variables.values(), key=lambda v: v["key"])
 
@@ -207,17 +261,13 @@ async def create_template(
 ):
     filename = file.filename or "template"
     ext = filename.rsplit(".", 1)[-1].lower()
-    if ext not in ("docx", "xlsx"):
-        raise HTTPException(status_code=400, detail="docx 또는 xlsx 파일만 지원합니다")
+    if ext not in SUPPORTED_TEMPLATE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="docx, xlsx, xlsm, xls 파일만 지원합니다")
 
     data = await file.read()
 
     try:
-        variables = (
-            _extract_variables_docx(data)
-            if ext == "docx"
-            else _extract_variables_xlsx(data)
-        )
+        variables = _extract_variables_for_extension(ext, data)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"파일 파싱 오류: {e}")
 
@@ -239,6 +289,54 @@ async def create_template(
     db.commit()
     db.refresh(template)
     return _template_to_response(template)
+
+
+@router.post("/templates/{template_id}/file", response_model=DocumentTemplateResponse)
+async def replace_template_file(
+    template_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    t = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
+
+    filename = file.filename or t.original_filename or "template"
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext not in SUPPORTED_TEMPLATE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="docx, xlsx, xlsm, xls 파일만 지원합니다")
+    if ext != t.file_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"현재 템플릿은 .{t.file_type} 형식입니다. 같은 형식의 파일로만 교체할 수 있습니다.",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="업로드된 파일이 비어 있습니다")
+
+    try:
+        variables = _extract_variables_for_extension(ext, data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"파일 파싱 오류: {e}")
+
+    old_object_key = t.minio_object_key
+    object_key = f"documents/templates/{t.created_by or current_user.id}/{filename}"
+    if not minio_client.upload_file(object_key, data, _content_type(ext)):
+        raise HTTPException(status_code=500, detail="파일 업로드 실패")
+
+    t.original_filename = filename
+    t.minio_object_key = object_key
+    t.file_size = len(data)
+    t.variables = variables
+    db.commit()
+    db.refresh(t)
+
+    if old_object_key != object_key:
+        minio_client.delete_file(old_object_key)
+
+    return _template_to_response(t)
 
 
 @router.get("/templates/{template_id}", response_model=DocumentTemplateResponse)

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createTemplate, deleteTemplate, getTemplates, updateTemplate } from '../api/client';
+import { createTemplate, deleteTemplate, getTemplates, replaceTemplateFile, updateTemplate } from '../api/client';
 import type { DocumentTemplate, DocumentVariable } from '../types';
 import Layout from '../components/Layout';
 
@@ -22,6 +22,8 @@ export default function DocumentTemplatePage() {
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [saving, setSaving] = useState(false);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const [replaceTarget, setReplaceTarget] = useState<DocumentTemplate | null>(null);
 
   // 검색
   const [searchQuery, setSearchQuery] = useState('');
@@ -62,8 +64,43 @@ export default function DocumentTemplatePage() {
 
   const handleDelete = async (id: number) => {
     if (!confirm('템플릿을 삭제하면 관련 작업 기록도 모두 삭제됩니다. 삭제하시겠습니까?')) return;
-    await deleteTemplate(id);
-    load();
+    try {
+      await deleteTemplate(id);
+      load();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      alert(err.response?.data?.detail || '삭제 실패');
+    }
+  };
+
+  const openReplace = (template: DocumentTemplate) => {
+    setReplaceTarget(template);
+    replaceInputRef.current?.click();
+  };
+
+  const handleReplaceFile = async (file: File | null) => {
+    if (!replaceTarget || !file) return;
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (ext !== replaceTarget.file_type) {
+        alert(`현재 템플릿은 .${replaceTarget.file_type} 형식입니다. 같은 형식의 파일만 교체할 수 있습니다.`);
+        return;
+      }
+
+      const fd = new FormData();
+      fd.append('file', file);
+      await replaceTemplateFile(replaceTarget.id, fd);
+      await load();
+      alert('템플릿 파일을 교체했습니다.');
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      alert(err.response?.data?.detail || '파일 교체 실패');
+    } finally {
+      setReplaceTarget(null);
+      if (replaceInputRef.current) {
+        replaceInputRef.current.value = '';
+      }
+    }
   };
 
   const openEdit = (t: DocumentTemplate) => {
@@ -115,6 +152,13 @@ export default function DocumentTemplatePage() {
           Word(.docx) 또는 Excel(.xlsx) 파일에 <code style={{ background: '#edf2f7', padding: '2px 6px', borderRadius: 4 }}>{'{{변수명}}'}</code> 형식으로 플레이스홀더를 작성하여 업로드하세요.
         </p>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            ref={replaceInputRef}
+            type="file"
+            accept=".docx,.xlsx,.xlsm,.xls"
+            style={{ display: 'none' }}
+            onChange={e => handleReplaceFile(e.target.files?.[0] || null)}
+          />
           <input
             className="search-input"
             placeholder="템플릿명, 파일명, 등록자 검색..."
@@ -192,6 +236,7 @@ export default function DocumentTemplatePage() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openEdit(t)}>편집</button>
+                      <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openReplace(t)}>파일교체</button>
                       <button className="btn" style={{ padding: '4px 10px', fontSize: 12, background: '#fff5f5', color: '#c53030', border: '1px solid #fed7d7' }} onClick={() => handleDelete(t.id)}>삭제</button>
                     </div>
                   </td>
@@ -217,11 +262,11 @@ export default function DocumentTemplatePage() {
               <input className="form-control" value={uploadDesc} onChange={e => setUploadDesc(e.target.value)} placeholder="선택 입력" />
             </div>
             <div className="form-group">
-              <label className="form-label">파일 선택 * (.docx 또는 .xlsx)</label>
+              <label className="form-label">파일 선택 * (.docx, .xlsx, .xlsm 또는 .xls)</label>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".docx,.xlsx"
+                accept=".docx,.xlsx,.xlsm,.xls"
                 style={{ display: 'none' }}
                 onChange={e => setUploadFile(e.target.files?.[0] || null)}
               />
