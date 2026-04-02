@@ -11,6 +11,9 @@ class Token(BaseModel):
 
 class UserBase(BaseModel):
     username: str
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    position: Optional[str] = None
     is_admin: bool = False
 
 
@@ -20,12 +23,26 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     password: Optional[str] = None
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    position: Optional[str] = None
     is_admin: Optional[bool] = None
 
 
 class UserResponse(UserBase):
     id: int
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserDirectoryResponse(BaseModel):
+    id: int
+    username: str
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    position: Optional[str] = None
 
     class Config:
         from_attributes = True

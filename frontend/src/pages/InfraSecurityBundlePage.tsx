@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { extractBundlePurchaseOrder, generateBundle, getBundles } from '../api/client';
+import { extractBundlePurchaseOrder, generateBundle, getBundles, getUserDirectory } from '../api/client';
 import type {
   BundlePurchaseOrderExtractResult,
   BundleVariable,
   TemplateBundle,
   TemplateBundleItem,
+  UserDirectoryEntry,
 } from '../types';
 import Layout from '../components/Layout';
 
@@ -40,10 +41,16 @@ export default function InfraSecurityBundlePage() {
   const [autoFilledKeys, setAutoFilledKeys] = useState<Set<string>>(new Set());
   const [serialEntries, setSerialEntries] = useState<SerialEntry[]>([createEmptySerialEntry(1)]);
   const [accessPeople, setAccessPeople] = useState<AccessPerson[]>([createEmptyAccessPerson(1)]);
+  const [favoriteUsers, setFavoriteUsers] = useState<UserDirectoryEntry[]>([]);
+  const [selectedFavoriteUserId, setSelectedFavoriteUserId] = useState('');
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    getUserDirectory().then(res => setFavoriteUsers(res.data)).catch(() => setFavoriteUsers([]));
+  }, []);
 
   useEffect(() => {
     getBundles()
@@ -87,6 +94,30 @@ export default function InfraSecurityBundlePage() {
 
   const handleRemoveAccessPerson = (id: number) => {
     setAccessPeople(prev => (prev.length === 1 ? prev : prev.filter(person => person.id !== id)));
+  };
+
+  const handleAddFavoriteUser = () => {
+    const selected = favoriteUsers.find(user => String(user.id) === selectedFavoriteUserId);
+    if (!selected) return;
+    const nextPerson = {
+      id: 0,
+      company: fieldValues['공급사_약칭'] || fieldValues['공급사'] || '',
+      name: selected.full_name || selected.username,
+      position: selected.position || '',
+      contact: selected.phone_number || '',
+    };
+    setAccessPeople(prev => {
+      if (
+        prev.length === 1 &&
+        !prev[0].company.trim() &&
+        !prev[0].name.trim() &&
+        !prev[0].position.trim() &&
+        !prev[0].contact.trim()
+      ) {
+        return [{ ...nextPerson, id: prev[0].id }];
+      }
+      return [...prev, { ...nextPerson, id: nextAccessPersonId(prev) }];
+    });
   };
 
   const handlePurchaseOrderExtract = async () => {
@@ -384,17 +415,64 @@ export default function InfraSecurityBundlePage() {
                   }}>
                     <span style={{ fontSize: 16 }}>{meta.icon}</span>
                     <span style={{ fontSize: 14, fontWeight: 700, color: '#2d3748' }}>{meta.title}</span>
-                    <span style={{
-                      marginLeft: 'auto', fontSize: 11, fontWeight: 600,
-                      color: '#718096', background: '#edf2f7',
-                      padding: '2px 8px', borderRadius: 12,
-                    }}>
-                      {section === 'IDC출입'
-                        ? `${filledAccessCount} / ${accessPeople.length * 4}`
-                        : section === '장비정보'
+                    {section === 'IDC출입' && (
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <select
+                          value={selectedFavoriteUserId}
+                          onChange={e => setSelectedFavoriteUserId(e.target.value)}
+                          style={{
+                            minWidth: 180,
+                            padding: '6px 10px',
+                            border: '1px solid #cbd5e0',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            background: '#fff',
+                          }}
+                        >
+                          <option value="">사용자 선택</option>
+                          {favoriteUsers.map(user => (
+                            <option key={user.id} value={String(user.id)}>
+                              {user.full_name || user.username}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleAddFavoriteUser}
+                          disabled={!selectedFavoriteUserId}
+                          style={{
+                            padding: '7px 10px',
+                            borderRadius: 6,
+                            border: 'none',
+                            background: selectedFavoriteUserId ? '#2b6cb0' : '#cbd5e0',
+                            color: '#fff',
+                            cursor: selectedFavoriteUserId ? 'pointer' : 'not-allowed',
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                        >
+                          인원 추가
+                        </button>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600,
+                          color: '#718096', background: '#edf2f7',
+                          padding: '2px 8px', borderRadius: 12,
+                        }}>
+                          {filledAccessCount} / {accessPeople.length * 4}
+                        </span>
+                      </div>
+                    )}
+                    {section !== 'IDC출입' && (
+                      <span style={{
+                        marginLeft: 'auto', fontSize: 11, fontWeight: 600,
+                        color: '#718096', background: '#edf2f7',
+                        padding: '2px 8px', borderRadius: 12,
+                      }}>
+                        {section === '장비정보'
                           ? `${countFilledSectionFields(vars, fieldValues, serialEntries)} / ${countTotalSectionFields(vars, serialEntries)}`
-                        : `${vars.filter(v => fieldValues[v.key]?.trim()).length} / ${vars.length}`}
-                    </span>
+                          : `${vars.filter(v => fieldValues[v.key]?.trim()).length} / ${vars.length}`}
+                      </span>
+                    )}
                   </div>
 
                   <div style={{
@@ -402,7 +480,9 @@ export default function InfraSecurityBundlePage() {
                     gridTemplateColumns: vars.some(v => v.key === '발주명') ? '1fr' : '1fr 1fr',
                     gap: '10px 16px',
                   }}>
-                    {section === 'IDC출입' ? accessPeople.map((person, index) => (
+                    {section === 'IDC출입' ? (
+                      <>
+                        {accessPeople.map((person, index) => (
                       <div
                         key={person.id}
                         style={{
@@ -487,7 +567,9 @@ export default function InfraSecurityBundlePage() {
                           ))}
                         </div>
                       </div>
-                    )) : vars.map(v => {
+                        ))}
+                      </>
+                    ) : vars.map(v => {
                       if (v.key === '시리얼번호') {
                         return (
                           <div key={v.key} style={{ gridColumn: '1 / -1' }}>

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from auth import get_password_hash
 from config import settings
-from database import Base, SessionLocal, create_database_if_not_exists, engine
+from database import Base, SessionLocal, create_database_if_not_exists, engine, run_schema_migrations
 from minio_client import ensure_bucket
 from routers.auth_router import router as auth_router
 from routers.bundles_router import router as bundles_router
@@ -21,6 +21,7 @@ async def lifespan(app: FastAPI):
     print("[DB] 데이터베이스 초기화 중...")
     create_database_if_not_exists()
     Base.metadata.create_all(bind=engine)
+    run_schema_migrations()
 
     # 기본 관리자 계정 생성
     from models import User

@@ -10,6 +10,7 @@ import type {
   TemplateBundle,
   UploadResponse,
   User,
+  UserDirectoryEntry,
 } from '../types';
 
 const api = axios.create({ baseURL: '/api' });
@@ -56,9 +57,23 @@ export const getRawLog = (id: number) => api.get<{ content: string; filename: st
 
 // Users
 export const getUsers = () => api.get<User[]>('/users');
-export const createUser = (data: { username: string; password: string; is_admin: boolean }) =>
+export const getUserDirectory = () => api.get<UserDirectoryEntry[]>('/users/directory');
+export const createUser = (data: {
+  username: string;
+  password: string;
+  full_name?: string;
+  phone_number?: string;
+  position?: string;
+  is_admin: boolean;
+}) =>
   api.post<User>('/users', data);
-export const updateUser = (id: number, data: { password?: string; is_admin?: boolean }) =>
+export const updateUser = (id: number, data: {
+  password?: string;
+  full_name?: string;
+  phone_number?: string;
+  position?: string;
+  is_admin?: boolean;
+}) =>
   api.put<User>(`/users/${id}`, data);
 export const deleteUser = (id: number) => api.delete(`/users/${id}`);
 

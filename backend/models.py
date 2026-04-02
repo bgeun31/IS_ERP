@@ -11,6 +11,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
+    full_name = Column(String(100))
+    phone_number = Column(String(50))
+    position = Column(String(100))
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
 

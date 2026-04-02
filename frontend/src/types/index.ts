@@ -1,8 +1,19 @@
 export interface User {
   id: number;
   username: string;
+  full_name: string | null;
+  phone_number: string | null;
+  position: string | null;
   is_admin: boolean;
   created_at: string;
+}
+
+export interface UserDirectoryEntry {
+  id: number;
+  username: string;
+  full_name: string | null;
+  phone_number: string | null;
+  position: string | null;
 }
 
 export interface DeviceVlan {

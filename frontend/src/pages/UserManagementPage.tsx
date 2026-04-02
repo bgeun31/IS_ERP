@@ -14,6 +14,9 @@ export default function UserManagementPage() {
   // Form state
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
+  const [formFullName, setFormFullName] = useState('');
+  const [formPhoneNumber, setFormPhoneNumber] = useState('');
+  const [formPosition, setFormPosition] = useState('');
   const [formIsAdmin, setFormIsAdmin] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -29,6 +32,9 @@ export default function UserManagementPage() {
     setEditUser(null);
     setFormUsername('');
     setFormPassword('');
+    setFormFullName('');
+    setFormPhoneNumber('');
+    setFormPosition('');
     setFormIsAdmin(false);
     setFormError('');
     setShowModal(true);
@@ -38,6 +44,9 @@ export default function UserManagementPage() {
     setEditUser(u);
     setFormUsername(u.username);
     setFormPassword('');
+    setFormFullName(u.full_name || '');
+    setFormPhoneNumber(u.phone_number || '');
+    setFormPosition(u.position || '');
     setFormIsAdmin(u.is_admin);
     setFormError('');
     setShowModal(true);
@@ -49,12 +58,30 @@ export default function UserManagementPage() {
     setSubmitting(true);
     try {
       if (editUser) {
-        const body: { password?: string; is_admin?: boolean } = { is_admin: formIsAdmin };
+        const body: {
+          password?: string;
+          full_name?: string;
+          phone_number?: string;
+          position?: string;
+          is_admin?: boolean;
+        } = {
+          full_name: formFullName,
+          phone_number: formPhoneNumber,
+          position: formPosition,
+          is_admin: formIsAdmin,
+        };
         if (formPassword) body.password = formPassword;
         await updateUser(editUser.id, body);
       } else {
         if (!formPassword) { setFormError('비밀번호를 입력해주세요.'); setSubmitting(false); return; }
-        await createUser({ username: formUsername, password: formPassword, is_admin: formIsAdmin });
+        await createUser({
+          username: formUsername,
+          password: formPassword,
+          full_name: formFullName,
+          phone_number: formPhoneNumber,
+          position: formPosition,
+          is_admin: formIsAdmin,
+        });
       }
       setShowModal(false);
       load();
@@ -91,6 +118,9 @@ export default function UserManagementPage() {
               <thead>
                 <tr>
                   <th>아이디</th>
+                  <th>이름</th>
+                  <th>전화번호</th>
+                  <th>직급</th>
                   <th>권한</th>
                   <th>생성일</th>
                   <th>관리</th>
@@ -100,6 +130,9 @@ export default function UserManagementPage() {
                 {users.map((u) => (
                   <tr key={u.id}>
                     <td><strong>{u.username}</strong>{u.id === me?.id && <span className="badge badge-blue" style={{ marginLeft: 8 }}>나</span>}</td>
+                    <td>{u.full_name || '-'}</td>
+                    <td className="text-muted text-sm">{u.phone_number || '-'}</td>
+                    <td className="text-muted text-sm">{u.position || '-'}</td>
                     <td>
                       <span className={`badge ${u.is_admin ? 'badge-orange' : 'badge-gray'}`}>
                         {u.is_admin ? '관리자' : '일반 사용자'}
@@ -136,6 +169,33 @@ export default function UserManagementPage() {
                   disabled={!!editUser}
                   required={!editUser}
                   placeholder="아이디 입력"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">이름</label>
+                <input
+                  className="form-input"
+                  value={formFullName}
+                  onChange={(e) => setFormFullName(e.target.value)}
+                  placeholder="이름 입력"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">전화번호</label>
+                <input
+                  className="form-input"
+                  value={formPhoneNumber}
+                  onChange={(e) => setFormPhoneNumber(e.target.value)}
+                  placeholder="전화번호 입력"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">직급</label>
+                <input
+                  className="form-input"
+                  value={formPosition}
+                  onChange={(e) => setFormPosition(e.target.value)}
+                  placeholder="직급 입력"
                 />
               </div>
               <div className="form-group">
