@@ -90,7 +90,7 @@ TEMPLATE_DEFS = [
         "sample_file": "NBP 입고일정공유파일.xlsx",
         "name": "NBP 입고일정공유파일",
         "display_name": "NBP 입고일정",
-        "output_pattern": "NBP 입고일정공유파일_{{발주번호}}",
+        "output_pattern": "NBP 입고일정공유파일",
         "description": "NBP 입고 일정 공유 파일",
     },
     {
@@ -107,13 +107,13 @@ XLSX_FROM_SCRATCH = [
     {
         "name": "납품확인서",
         "display_name": "납품확인서",
-        "output_pattern": "납품확인서_{{발주명}}",
+        "output_pattern": "납품확인서",
         "description": "납품/검수 확인서",
     },
     {
         "name": "IDC 출입명단",
         "display_name": "IDC 출입명단",
-        "output_pattern": "IDC 출입명단_{{발주번호}}",
+        "output_pattern": "IDC 출입명단",
         "description": "IDC 출입 및 권한 신청서",
     },
 ]

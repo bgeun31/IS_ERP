@@ -36,6 +36,51 @@ def _content_type(file_type: str) -> str:
     return DOCX_CONTENT_TYPE if file_type == "docx" else XLSX_CONTENT_TYPE
 
 
+def _sanitize_filename(value: str) -> str:
+    return re.sub(r'[\\/*?:"<>|]', "_", value)
+
+
+def _compact_purchase_title(field_values: dict) -> str:
+    title = str(field_values.get("발주명", "") or "").strip()
+    if not title:
+        return ""
+    title = re.sub(r"^\[[^\]]+\]\s*", "", title)
+    title = re.sub(r"\s*건$", "", title).strip()
+    return title
+
+
+def _compact_date_yyMMdd(value: str | None) -> str:
+    raw = str(value or "").strip()
+    match = re.search(r"(20\d{2})[/-](\d{2})[/-](\d{2})", raw)
+    if match:
+        return f"{match.group(1)[2:]}{match.group(2)}{match.group(3)}"
+    return raw
+
+
+def _resolve_output_name(item: TemplateBundleItem, field_values: dict) -> str:
+    if item.display_name == "IDC 출입명단":
+        return "IDC 출입명단"
+
+    if item.display_name == "NBP 입고일정":
+        return "NBP 입고일정공유파일"
+
+    if item.display_name == "납품확인서":
+        compact_title = _compact_purchase_title(field_values) or str(field_values.get("발주명", "") or "").strip()
+        compact_date = _compact_date_yyMMdd(
+            field_values.get("입고일자") or field_values.get("검수일자") or field_values.get("발주일자")
+        )
+        if compact_title and compact_date:
+            return f"납품확인서_{compact_title}_{compact_date}"
+        if compact_title:
+            return f"납품확인서_{compact_title}"
+        return "납품확인서"
+
+    output_name = item.output_name_pattern or item.display_name
+    for key, value in field_values.items():
+        output_name = output_name.replace(f"{{{{{key}}}}}", str(value))
+    return output_name
+
+
 def _bundle_to_response(b: TemplateBundle) -> TemplateBundleResponse:
     return TemplateBundleResponse(
         id=b.id,
@@ -435,10 +480,8 @@ async def generate_bundle(
                 continue
 
             # Build output filename from pattern
-            output_name = item.output_name_pattern or item.display_name
-            for key, value in field_values.items():
-                output_name = output_name.replace(f"{{{{{key}}}}}", str(value))
-            safe_name = re.sub(r'[\\/*?:"<>|]', "_", output_name)
+            output_name = _resolve_output_name(item, field_values)
+            safe_name = _sanitize_filename(output_name)
             filename = f"{safe_name}.{tpl.file_type}"
 
             zf.writestr(filename, rendered)
@@ -463,7 +506,7 @@ async def generate_bundle(
 
     zip_data = zip_buffer.getvalue()
     bundle_title = field_values.get("발주명", b.name)
-    safe_title = re.sub(r'[\\/*?:"<>|]', "_", bundle_title)
+    safe_title = _sanitize_filename(bundle_title)
     zip_filename = f"{safe_title}_문서일괄.zip"
 
     return Response(
