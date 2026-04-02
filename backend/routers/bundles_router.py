@@ -30,10 +30,17 @@ DOCX_CONTENT_TYPE = (
 XLSX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+XLSM_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.12"
+XLS_CONTENT_TYPE = "application/vnd.ms-excel"
 
 
 def _content_type(file_type: str) -> str:
-    return DOCX_CONTENT_TYPE if file_type == "docx" else XLSX_CONTENT_TYPE
+    return {
+        "docx": DOCX_CONTENT_TYPE,
+        "xlsx": XLSX_CONTENT_TYPE,
+        "xlsm": XLSM_CONTENT_TYPE,
+        "xls": XLS_CONTENT_TYPE,
+    }.get(file_type, "application/octet-stream")
 
 
 def _sanitize_filename(value: str) -> str:
@@ -74,6 +81,18 @@ def _split_date_parts(value: str | None) -> tuple[str, str, str] | None:
 
 
 def _resolve_output_name(item: TemplateBundleItem, field_values: dict) -> str:
+    quantity = str(field_values.get("수량", "") or "").strip()
+
+    if item.display_name == "검수확인서":
+        if quantity:
+            return f"{field_values.get('모델명', '')}_검수확인서_{field_values.get('발주번호', '')}_{quantity}EA"
+        return f"{field_values.get('모델명', '')}_검수확인서_{field_values.get('발주번호', '')}".strip("_")
+
+    if item.display_name == "현장검수확인서":
+        if quantity:
+            return f"{field_values.get('모델명', '')}_현장검수확인서_{field_values.get('발주번호', '')}_{quantity}EA"
+        return f"{field_values.get('모델명', '')}_현장검수확인서_{field_values.get('발주번호', '')}".strip("_")
+
     if item.display_name == "IDC 출입명단":
         return "IDC 출입명단"
 
@@ -162,10 +181,16 @@ def _render_docx(template_data: bytes, field_values: dict) -> bytes:
     )
 
 
-def _render_xlsx(template_data: bytes, field_values: dict, *, expand_serial_rows: bool = True) -> bytes:
+def _render_xlsx(
+    template_data: bytes,
+    field_values: dict,
+    *,
+    expand_serial_rows: bool = True,
+    keep_vba: bool = False,
+) -> bytes:
     import openpyxl
 
-    wb = openpyxl.load_workbook(io.BytesIO(template_data))
+    wb = openpyxl.load_workbook(io.BytesIO(template_data), keep_vba=keep_vba)
     serial_numbers = _extract_serial_numbers(field_values)
 
     if expand_serial_rows and len(serial_numbers) > 1:
@@ -185,6 +210,106 @@ def _render_xlsx(template_data: bytes, field_values: dict, *, expand_serial_rows
 
     output = io.BytesIO()
     wb.save(output)
+    return output.getvalue()
+
+
+def _parse_excel_date(value: str | None):
+    from datetime import datetime
+
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _render_cmdb_xlsm(template_data: bytes, field_values: dict) -> bytes:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(template_data), keep_vba=True)
+    ws = wb["NETWORK"] if "NETWORK" in wb.sheetnames else wb.active
+
+    serial_numbers = [serial for serial in _extract_serial_numbers(field_values) if serial]
+    quantity = str(field_values.get("수량", "") or "").strip()
+    quantity_int = int(quantity) if quantity.isdigit() else 1
+    row_count = max(len(serial_numbers), quantity_int, 1)
+    base_row = 14
+
+    if row_count > 1:
+        ws.insert_rows(base_row + 1, row_count - 1)
+        for offset in range(1, row_count):
+            _copy_xlsx_row(ws, base_row, base_row + offset, ws.max_column)
+
+    manufacturer = str(field_values.get("제조사", "") or "")
+    model_name = str(field_values.get("모델명", "") or "")
+    os_version = str(field_values.get("OS버전", "") or "")
+    place_name = str(field_values.get("납품장소", "") or "")
+    maintenance_end = _parse_excel_date(field_values.get("유지보수종료일"))
+
+    for offset in range(row_count):
+        row = base_row + offset
+        serial = serial_numbers[offset] if offset < len(serial_numbers) else ""
+        ws.cell(row, 2).value = offset + 1
+        ws.cell(row, 3).value = ""
+        ws.cell(row, 4).value = manufacturer
+        ws.cell(row, 5).value = model_name
+        ws.cell(row, 6).value = serial
+        ws.cell(row, 7).value = os_version
+        ws.cell(row, 8).value = place_name
+        ws.cell(row, 9).value = manufacturer
+        ws.cell(row, 10).value = maintenance_end or str(field_values.get("유지보수종료일", "") or "")
+        ws.cell(row, 11).value = "Y"
+
+    if "CODELIST" in wb.sheetnames:
+        codes = wb["CODELIST"]
+        codes["B3"] = model_name
+        codes["B168"] = manufacturer
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def _render_delivery_confirmation_xls(template_data: bytes, field_values: dict) -> bytes:
+    import xlrd
+    from xlutils.copy import copy as xl_copy
+
+    source = xlrd.open_workbook(file_contents=template_data, formatting_info=True)
+    writable = xl_copy(source)
+    ws = writable.get_sheet(0)
+
+    serial_numbers = [serial for serial in _extract_serial_numbers(field_values) if serial]
+    xf_text = _get_xls_template_xf_indices(ws, 14, 7)
+    xf_footer = _get_xls_template_xf_indices(ws, 31, 7)
+    top_date = str(field_values.get("입고일자", "") or "").replace("/", "-")
+    footer_date = str(field_values.get("입고일자", "") or "")
+    parts = _split_date_parts(field_values.get("입고일자"))
+    if parts:
+        year, month, day = parts
+        footer_date = f"{year}년   {int(month)}월    {int(day)}일"
+
+    values = {
+        (6, 2): top_date,
+        (10, 2): str(field_values.get("발주명", "") or ""),
+        (14, 2): str(field_values.get("모델명", "") or ""),
+        (14, 3): "\n".join(serial_numbers),
+        (14, 4): str(field_values.get("수량", "") or ""),
+        (15, 4): str(field_values.get("수량", "") or ""),
+        (16, 4): str(field_values.get("수량", "") or ""),
+        (17, 4): str(field_values.get("유지보수수량", "") or field_values.get("수량", "") or ""),
+        (31, 4): footer_date,
+    }
+
+    for (row_idx, col_idx), value in values.items():
+        xf_idx = xf_text[col_idx] if row_idx < 31 else xf_footer[col_idx]
+        _set_xls_text_cell(ws, row_idx, col_idx, value, xf_idx)
+
+    output = io.BytesIO()
+    writable.save(output)
     return output.getvalue()
 
 
@@ -293,6 +418,26 @@ def _copy_xlsx_row(ws, source_row: int, target_row: int, max_col: int):
         target.value = source.value
 
 
+def _get_xls_template_xf_indices(ws, template_row_idx: int, max_col: int) -> list[int]:
+    row = ws._Worksheet__rows.get(template_row_idx)
+    if not row:
+        return [17] * max_col
+
+    indices: list[int] = []
+    for col_idx in range(max_col):
+        cell = row._Row__cells.get(col_idx)
+        indices.append(getattr(cell, "xf_idx", row.get_xf_index()))
+    return indices
+
+
+def _set_xls_text_cell(ws, row_idx: int, col_idx: int, value: str, xf_idx: int) -> None:
+    from xlwt.Cell import StrCell
+
+    row = ws.row(row_idx)
+    sst_idx = ws._Worksheet__parent._Workbook__sst.add_str(value)
+    row.insert_cell(col_idx, StrCell(row_idx, col_idx, xf_idx, sst_idx))
+
+
 def _expand_xlsx_serial_rows(ws, serial_numbers: list[str]):
     row = 1
     max_col = ws.max_column
@@ -399,6 +544,39 @@ def _render_idc_access_xlsx(template_data: bytes, field_values: dict) -> bytes:
     return output.getvalue()
 
 
+def _render_idc_access_xls(template_data: bytes, field_values: dict) -> bytes:
+    import xlrd
+    from xlutils.copy import copy as xl_copy
+
+    source = xlrd.open_workbook(file_contents=template_data, formatting_info=True)
+    writable = xl_copy(source)
+    ws = writable.get_sheet(0)
+    people = _extract_idc_access_people(field_values)
+    start_row = 11
+    xf_indices = _get_xls_template_xf_indices(ws, start_row, 5)
+
+    ws.set_panes_frozen(True)
+    ws.set_horz_split_pos(8)
+    ws.set_horz_split_first_visible(8)
+    ws.set_remove_splits(True)
+
+    for idx, person in enumerate(people):
+        row_idx = start_row + idx
+        values = [
+            "",
+            person["company"],
+            person["name"],
+            person["position"],
+            person["contact"],
+        ]
+        for col_idx, value in enumerate(values):
+            _set_xls_text_cell(ws, row_idx, col_idx, value, xf_indices[col_idx])
+
+    output = io.BytesIO()
+    writable.save(output)
+    return output.getvalue()
+
+
 def _is_dynamic_idc_key(key: str) -> bool:
     return bool(re.fullmatch(r"출입자\d+_(회사명|이름|직책|연락처)", key))
 
@@ -499,8 +677,14 @@ async def generate_bundle(
                 continue
 
             try:
-                if item.display_name == "IDC 출입명단" and tpl.file_type == "xlsx":
+                if item.display_name == "IDC 출입명단" and tpl.file_type == "xls":
+                    rendered = _render_idc_access_xls(template_data, field_values)
+                elif item.display_name == "IDC 출입명단" and tpl.file_type == "xlsx":
                     rendered = _render_idc_access_xlsx(template_data, field_values)
+                elif item.display_name == "납품확인서" and tpl.file_type == "xls":
+                    rendered = _render_delivery_confirmation_xls(template_data, field_values)
+                elif item.display_name == "CMDB" and tpl.file_type == "xlsm":
+                    rendered = _render_cmdb_xlsm(template_data, field_values)
                 elif tpl.file_type == "docx":
                     rendered = _render_docx(template_data, field_values)
                 else:
@@ -508,6 +692,7 @@ async def generate_bundle(
                         template_data,
                         field_values,
                         expand_serial_rows=item.display_name != "납품확인서",
+                        keep_vba=tpl.file_type == "xlsm",
                     )
             except Exception as e:
                 print(f"[Bundle] 렌더링 오류 ({item.display_name}): {e}")

@@ -107,7 +107,7 @@ export interface DocumentTemplate {
   id: number;
   name: string;
   description: string | null;
-  file_type: 'docx' | 'xlsx';
+  file_type: 'docx' | 'xlsx' | 'xlsm' | 'xls';
   original_filename: string;
   file_size: number | null;
   variables: DocumentVariable[];
@@ -127,7 +127,7 @@ export interface TemplateBundleItem {
   template_id: number;
   display_name: string;
   output_name_pattern: string | null;
-  file_type: 'docx' | 'xlsx' | null;
+  file_type: 'docx' | 'xlsx' | 'xlsm' | 'xls' | null;
   order: number;
 }
 
@@ -154,7 +154,7 @@ export interface DocumentRecord {
   id: number;
   template_id: number;
   template_name: string | null;
-  file_type: 'docx' | 'xlsx' | null;
+  file_type: 'docx' | 'xlsx' | 'xlsm' | 'xls' | null;
   title: string;
   field_values: Record<string, string>;
   original_filename: string | null;

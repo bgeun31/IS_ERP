@@ -8,11 +8,12 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 import minio_client
 from auth import get_current_user
 from database import get_db
-from models import DocumentRecord, DocumentTemplate, User
+from models import DocumentRecord, DocumentTemplate, TemplateBundleItem, User
 from schemas import (
     DocumentRecordResponse,
     DocumentTemplateResponse,
@@ -29,10 +30,17 @@ DOCX_CONTENT_TYPE = (
 XLSX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+XLSM_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.12"
+XLS_CONTENT_TYPE = "application/vnd.ms-excel"
 
 
 def _content_type(file_type: str) -> str:
-    return DOCX_CONTENT_TYPE if file_type == "docx" else XLSX_CONTENT_TYPE
+    return {
+        "docx": DOCX_CONTENT_TYPE,
+        "xlsx": XLSX_CONTENT_TYPE,
+        "xlsm": XLSM_CONTENT_TYPE,
+        "xls": XLS_CONTENT_TYPE,
+    }.get(file_type, "application/octet-stream")
 
 
 # ── 변수 추출 ────────────────────────────────────────────────────────────────
@@ -285,9 +293,34 @@ def delete_template(
     t = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
-    minio_client.delete_file(t.minio_object_key)
+
+    bundle_items = (
+        db.query(TemplateBundleItem)
+        .filter(TemplateBundleItem.template_id == template_id)
+        .all()
+    )
+    if bundle_items:
+        bundle_names = ", ".join(item.display_name for item in bundle_items)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "이 템플릿은 번들에서 사용 중이라 삭제할 수 없습니다. "
+                f"연결된 번들 항목: {bundle_names}"
+            ),
+        )
+
+    object_key = t.minio_object_key
     db.delete(t)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="다른 문서 또는 번들에서 사용 중인 템플릿이라 삭제할 수 없습니다.",
+        )
+
+    minio_client.delete_file(object_key)
 
 
 @router.get("/templates/{template_id}/file")

@@ -31,6 +31,7 @@ REPLACEMENTS = {
     "SM022609Q-40056": "{{시리얼번호}}",
     "아이클라우드 주식회사": "{{공급사}}",
     "아이클라우드": "{{공급사_약칭}}",
+    "가산2IDC": "{{납품장소}}",
     "전진호": "{{공급사담당자}}",
     "7520-48Y-8C-AC-F": "{{모델명}}",
     "2027-03-31": "{{유지보수종료일}}",
@@ -56,7 +57,7 @@ DOCX_TEXT_REPLACEMENTS = [
     ("가산2", "{{납품장소}}"),
     ("아이클라우드 주식회사", "{{공급사}}"),
     ("아이클라우드", "{{공급사_약칭}}"),
-    ("7520-48Y-8C-AC-F 1식", "{{모델명}} {{수량}}ea"),
+    ("7520-48Y-8C-AC-F 1식", "{{모델명}} {{수량}}식"),
     ("1ea", "{{수량}}ea"),
     ("SM022609Q-40056", "{{시리얼번호}}"),
     ("7520-48Y-8C-AC-F", "{{모델명}}"),
@@ -96,14 +97,14 @@ TEMPLATE_DEFS = [
         "sample_file": "7520-48Y-8C-AC-F_검수확인서_PO-20260319-0043_1EA.docx",
         "name": "검수확인서",
         "display_name": "검수확인서",
-        "output_pattern": "{{모델명}}_검수확인서_{{발주번호}}",
+        "output_pattern": "{{모델명}}_검수확인서_{{발주번호}}_{{수량}}EA",
         "description": "장비 입고 후 검수 결과를 기록하는 확인서",
     },
     {
         "sample_file": "7520-48Y-8C-AC-F_현장검수확인서_PO-20260319-0043_1EA.docx",
         "name": "현장검수확인서",
         "display_name": "현장검수확인서",
-        "output_pattern": "{{모델명}}_현장검수확인서_{{발주번호}}",
+        "output_pattern": "{{모델명}}_현장검수확인서_{{발주번호}}_{{수량}}EA",
         "description": "현장 검수 시험 절차 및 결과 리포트",
     },
     {
@@ -232,6 +233,23 @@ def _create_xlsx_template_from_sample(sample_path: str, replacements: dict) -> b
         xml_prefixes=("xl/",),
         escape_xml=False,
     )
+
+
+def _create_idc_access_xls_template(sample_path: str) -> bytes:
+    import xlrd
+    from xlutils.copy import copy as xl_copy
+
+    book = xlrd.open_workbook(sample_path, formatting_info=True)
+    writable = xl_copy(book)
+    sheet = writable.get_sheet(0)
+    sheet.set_panes_frozen(True)
+    sheet.set_horz_split_pos(8)
+    sheet.set_horz_split_first_visible(8)
+    sheet.set_remove_splits(True)
+
+    buf = io.BytesIO()
+    writable.save(buf)
+    return buf.getvalue()
 
 
 def _xls_colour_to_rgb(book, colour_index: int) -> str | None:
@@ -376,65 +394,6 @@ def _set_sheet_cell(ws, row: int, col: int, value: str) -> None:
     ws.cell(row=row, column=col).value = value
 
 
-def _apply_delivery_confirmation_placeholders(xlsx_data: bytes) -> bytes:
-    import openpyxl
-    from openpyxl.styles import Alignment, Border, PatternFill, Side
-
-    wb = openpyxl.load_workbook(io.BytesIO(xlsx_data))
-    ws = wb.active
-    thin = Side(style="thin", color="000000")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-    ws.column_dimensions["G"].width = 4
-    ws.column_dimensions["H"].width = 14
-    ws.column_dimensions["I"].width = 14
-    ws.column_dimensions["J"].width = 14
-    ws.column_dimensions["K"].width = 14
-
-    _set_sheet_cell(ws, 7, 3, "{{입고일자_대시}}")
-    _set_sheet_cell(ws, 11, 3, "{{발주명}}")
-    _set_sheet_cell(ws, 15, 3, "{{모델명}}")
-    _set_sheet_cell(ws, 15, 4, "{{시리얼번호}}")
-    _set_sheet_cell(ws, 15, 5, "{{수량}}")
-    _set_sheet_cell(ws, 16, 5, "{{수량}}")
-    _set_sheet_cell(ws, 17, 5, "{{수량}}")
-    _set_sheet_cell(ws, 18, 5, "{{유지보수수량}}")
-    _set_sheet_cell(ws, 32, 5, "{{입고일자_한글여백}}")
-
-    ws.merge_cells("G5:G11")
-    supplier_title = ws["G5"]
-    supplier_title.value = "공\n급\n자"
-    supplier_title.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    supplier_title.fill = PatternFill(fill_type="solid", fgColor="B7E6E6")
-    supplier_title.border = border
-
-    supplier_rows = [
-        ("등록번호", "528-87-01823"),
-        ("상   호", "{{공급사}}"),
-        ("주   소", "서울 영등포구 영등포로50"),
-        ("대표자", "임재원"),
-        ("업태/종목", "제조업/통신판매업"),
-        ("회사전화", "02-2637-0903"),
-        ("회사팩스", "02-2637-0904"),
-    ]
-    for offset, (label, value) in enumerate(supplier_rows):
-        row = 5 + offset
-        ws.merge_cells(start_row=row, start_column=8, end_row=row, end_column=9)
-        ws.merge_cells(start_row=row, start_column=10, end_row=row, end_column=11)
-        label_cell = ws.cell(row=row, column=8)
-        value_cell = ws.cell(row=row, column=10)
-        label_cell.value = label
-        value_cell.value = value
-        label_cell.alignment = Alignment(horizontal="center", vertical="center")
-        value_cell.alignment = Alignment(horizontal="center", vertical="center")
-        for col in range(8, 12):
-            ws.cell(row=row, column=col).border = border
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()
-
-
 def _apply_idc_access_placeholders(xlsx_data: bytes) -> bytes:
     import openpyxl
 
@@ -468,11 +427,12 @@ def _upsert_template(
     data: bytes,
 ):
     object_key = f"documents/templates/{admin.id}/bundles/{template_filename}"
-    content_type = (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        if file_type == "docx"
-        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    content_type = {
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+        "xls": "application/vnd.ms-excel",
+    }.get(file_type, "application/octet-stream")
 
     if not minio_client.upload_file(object_key, data, content_type):
         print(f"[Seed] MinIO 업로드 실패: {template_filename}")
@@ -543,10 +503,12 @@ def seed_infra_security_bundle(db_session):
             continue
 
         ext = sample_path.suffix.lower().lstrip(".")
-        file_type = "docx" if ext == "docx" else "xlsx"
+        file_type = ext
 
         if ext == "docx":
             data = _create_docx_template(str(sample_path), REPLACEMENTS)
+        elif ext == "xlsm":
+            data = sample_path.read_bytes()
         else:
             data = _create_xlsx_template_from_sample(str(sample_path), REPLACEMENTS)
 
@@ -574,19 +536,22 @@ def seed_infra_security_bundle(db_session):
             print(f"[Seed] 샘플 파일 없음: {sample_path}, 스킵")
             continue
 
-        data = _convert_xls_sample_to_xlsx(str(sample_path), REPLACEMENTS)
         if sdef["name"] == "납품확인서":
-            data = _apply_delivery_confirmation_placeholders(data)
+            data = sample_path.read_bytes()
+            file_type = "xls"
         elif sdef["name"] == "IDC 출입명단":
-            data = _apply_idc_access_placeholders(data)
+            data = _create_idc_access_xls_template(str(sample_path))
+            file_type = "xls"
+        else:
+            continue
 
-        template_filename = f"tpl_{sdef['name']}.xlsx"
+        template_filename = f"tpl_{sdef['name']}.{file_type}"
         tpl = _upsert_template(
             db_session,
             admin,
             f"[인프라보안] {sdef['name']}",
             sdef.get("description", ""),
-            "xlsx",
+            file_type,
             template_filename,
             data,
         )
@@ -595,7 +560,7 @@ def seed_infra_security_bundle(db_session):
 
         templates_created.append((tpl, sdef, order))
         order += 1
-        print(f"[Seed]   템플릿 반영: {sdef['name']} (xlsx, 새로 생성)")
+        print(f"[Seed]   템플릿 반영: {sdef['name']} ({file_type}, 새로 생성)")
 
     for tpl, tdef, idx in templates_created:
         item = existing_items.get(tdef["display_name"])
@@ -612,6 +577,24 @@ def seed_infra_security_bundle(db_session):
 
 def _extract_variables(data: bytes, file_type: str) -> list:
     """파일에서 {{변수}} 패턴을 추출."""
-    prefixes = ("word/",) if file_type == "docx" else ("xl/",)
-    keys = extract_placeholders_from_office_package(data, prefixes)
-    return [{"key": key, "label": key, "type": "text"} for key in keys]
+    if file_type == "docx":
+        keys = extract_placeholders_from_office_package(data, ("word/",))
+    elif file_type in {"xlsx", "xlsm"}:
+        keys = extract_placeholders_from_office_package(data, ("xl/",))
+    elif file_type == "xls":
+        import xlrd
+
+        pattern = re.compile(r"\{\{([^{}]+)\}\}")
+        keys = set()
+        book = xlrd.open_workbook(file_contents=data, formatting_info=True)
+        for sheet in book.sheets():
+            for row_idx in range(sheet.nrows):
+                for col_idx in range(sheet.ncols):
+                    value = sheet.cell_value(row_idx, col_idx)
+                    if not isinstance(value, str):
+                        continue
+                    for match in pattern.finditer(value):
+                        keys.add(match.group(1).strip())
+    else:
+        keys = set()
+    return [{"key": key, "label": key, "type": "text"} for key in sorted(keys)]
