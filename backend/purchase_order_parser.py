@@ -48,6 +48,43 @@ def _extract_item_names(lines: list[str]) -> list[str]:
     return item_names
 
 
+def _extract_item_blocks(lines: list[str]) -> list[dict[str, str]]:
+    headers = ["단가", "수량", "단위", "공급금액", "제조사", "모델명", "납품장소", "검수조건", "하자보증기간"]
+    blocks: list[dict[str, str]] = []
+    idx = 0
+
+    while idx <= len(lines) - len(headers):
+        if lines[idx:idx + len(headers)] != headers:
+            idx += 1
+            continue
+
+        values: list[str] = []
+        cursor = idx + len(headers)
+        while cursor < len(lines) and lines[cursor] != "단가":
+            if lines[cursor] in {"발행여부", "구분", "보증요율 및 기준 (부가세포함)", "금액"}:
+                break
+            values.append(lines[cursor])
+            cursor += 1
+
+        if len(values) >= 9:
+            delivery_place = values[8]
+            if len(values) > 9 and values[9].startswith("("):
+                delivery_place = f"{delivery_place} {values[9]}"
+
+            blocks.append(
+                {
+                    "quantity": values[1],
+                    "unit": values[2],
+                    "manufacturer": values[4],
+                    "delivery_place": delivery_place,
+                }
+            )
+
+        idx = cursor
+
+    return blocks
+
+
 def _extract_purchase_order_name(lines: list[str]) -> str | None:
     for idx, line in enumerate(lines):
         if re.fullmatch(r"PO-\d{8}-\d{4}", line):
@@ -70,6 +107,18 @@ def _extract_maintenance_years(item_names: list[str]) -> int | None:
         value = match.group(1) or match.group(2)
         if value:
             return int(value)
+    return None
+
+
+def _extract_maintenance_quantity(item_names: list[str], item_blocks: list[dict[str, str]]) -> int | None:
+    for index, item_name in enumerate(item_names):
+        if "유지보수" not in item_name:
+            continue
+        if index >= len(item_blocks):
+            continue
+        quantity = item_blocks[index].get("quantity", "").strip()
+        if quantity.isdigit():
+            return int(quantity)
     return None
 
 
@@ -122,9 +171,11 @@ def parse_purchase_order_pdf(data: bytes) -> dict:
     if not text.strip():
         raise ValueError("PDF에서 텍스트를 추출하지 못했습니다")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    first_item_values = _extract_first_item_values(lines)
     item_names = _extract_item_names(lines)
+    item_blocks = _extract_item_blocks(lines)
+    first_item_values = _extract_first_item_values(lines)
     maintenance_years = _extract_maintenance_years(item_names)
+    maintenance_quantity = _extract_maintenance_quantity(item_names, item_blocks)
     purchase_order_name = _extract_purchase_order_name(lines)
 
     field_values: dict[str, str] = {}
@@ -164,16 +215,17 @@ def parse_purchase_order_pdf(data: bytes) -> dict:
         assign("입고일자", field_values["납품기한"], inferred=True)
         warnings.append("입고일자는 발주서의 납품기한 값을 기준으로 먼저 채웠습니다.")
 
-    total_maintenance_years = maintenance_years or 1
-    additional_maintenance_years = max(0, total_maintenance_years - 1)
+    maintenance_term = maintenance_years or 0
+    maintenance_count = maintenance_quantity or 0
+    additional_maintenance_years = maintenance_term * maintenance_count
     assign(
         "유지보수종료일",
         _calc_maintenance_end_date(base_years=1, additional_years=additional_maintenance_years),
         inferred=True,
     )
-    if maintenance_years:
+    if maintenance_years and maintenance_quantity:
         warnings.append(
-            f"유지보수종료일은 발주서 품목명의 유지보수 {maintenance_years}년을 총 보장 연수로 보고 이번 달 말일 기준으로 계산했습니다."
+            f"유지보수종료일은 기본 1년에 발주서 유지보수 {maintenance_years}년 x 수량 {maintenance_quantity}를 더해 이번 달 말일 기준으로 계산했습니다."
         )
     else:
         warnings.append("유지보수종료일은 기본 1년을 이번 달 말일 기준으로 계산했습니다.")

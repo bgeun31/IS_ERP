@@ -24,6 +24,11 @@ type AccessPerson = {
   contact: string;
 };
 
+type SerialEntry = {
+  id: number;
+  value: string;
+};
+
 export default function InfraSecurityBundlePage() {
   const [bundle, setBundle] = useState<TemplateBundle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +38,7 @@ export default function InfraSecurityBundlePage() {
   const [extractError, setExtractError] = useState('');
   const [extractResult, setExtractResult] = useState<BundlePurchaseOrderExtractResult | null>(null);
   const [autoFilledKeys, setAutoFilledKeys] = useState<Set<string>>(new Set());
+  const [serialEntries, setSerialEntries] = useState<SerialEntry[]>([createEmptySerialEntry(1)]);
   const [accessPeople, setAccessPeople] = useState<AccessPerson[]>([createEmptyAccessPerson(1)]);
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(false);
@@ -50,6 +56,7 @@ export default function InfraSecurityBundlePage() {
             .filter((v: BundleVariable) => v.section !== 'IDC출입')
             .forEach((v: BundleVariable) => { init[v.key] = ''; });
           setFieldValues(init);
+          setSerialEntries([createEmptySerialEntry(1)]);
           setAccessPeople([createEmptyAccessPerson(1)]);
           setSelectedItems(new Set(infra.items.map((it: TemplateBundleItem) => it.id)));
         }
@@ -57,12 +64,21 @@ export default function InfraSecurityBundlePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const desiredCount = parseQuantity(fieldValues['수량']);
+    setSerialEntries(prev => syncSerialEntries(prev, desiredCount));
+  }, [fieldValues['수량']]);
+
   const handleFieldChange = (key: string, value: string) => {
     setFieldValues(prev => ({ ...prev, [key]: value }));
   };
 
   const handleAccessPersonChange = (id: number, key: keyof Omit<AccessPerson, 'id'>, value: string) => {
     setAccessPeople(prev => prev.map(person => (person.id === id ? { ...person, [key]: value } : person)));
+  };
+
+  const handleSerialChange = (id: number, value: string) => {
+    setSerialEntries(prev => prev.map(entry => (entry.id === id ? { ...entry, value } : entry)));
   };
 
   const handleAddAccessPerson = () => {
@@ -124,13 +140,21 @@ export default function InfraSecurityBundlePage() {
   };
 
   const nonIdcVariables = bundle?.variables.filter(v => v.section !== 'IDC출입') ?? [];
-  const filledBaseCount = nonIdcVariables.filter(v => (fieldValues[v.key] || '').trim()).length;
+  const filledBaseCount = nonIdcVariables.reduce((count, variable) => {
+    if (variable.key === '시리얼번호') {
+      return count + serialEntries.filter(entry => entry.value.trim()).length;
+    }
+    return count + ((fieldValues[variable.key] || '').trim() ? 1 : 0);
+  }, 0);
   const filledAccessCount = accessPeople.reduce(
     (count, person) => count + ['company', 'name', 'position', 'contact'].filter(key => person[key as keyof Omit<AccessPerson, 'id'>].trim()).length,
     0,
   );
   const filledCount = filledBaseCount + filledAccessCount;
-  const totalCount = nonIdcVariables.length + accessPeople.length * 4;
+  const totalBaseCount = nonIdcVariables.reduce((count, variable) => (
+    count + (variable.key === '시리얼번호' ? serialEntries.length : 1)
+  ), 0);
+  const totalCount = totalBaseCount + accessPeople.length * 4;
 
   const handleGenerate = async () => {
     if (!bundle) return;
@@ -140,7 +164,7 @@ export default function InfraSecurityBundlePage() {
 
     try {
       const formData = new FormData();
-      formData.append('field_values', JSON.stringify(buildSubmissionFieldValues(fieldValues, accessPeople)));
+      formData.append('field_values', JSON.stringify(buildSubmissionFieldValues(fieldValues, accessPeople, serialEntries)));
       formData.append('selected_items', JSON.stringify([...selectedItems]));
 
       const res = await generateBundle(bundle.id, formData);
@@ -173,6 +197,7 @@ export default function InfraSecurityBundlePage() {
     setExtractError('');
     setExtractResult(null);
     setAutoFilledKeys(new Set());
+    setSerialEntries([createEmptySerialEntry(1)]);
     setAccessPeople([createEmptyAccessPerson(1)]);
     setSelectedItems(new Set(bundle.items.map(it => it.id)));
     setSuccess(false);
@@ -366,6 +391,8 @@ export default function InfraSecurityBundlePage() {
                     }}>
                       {section === 'IDC출입'
                         ? `${filledAccessCount} / ${accessPeople.length * 4}`
+                        : section === '장비정보'
+                          ? `${countFilledSectionFields(vars, fieldValues, serialEntries)} / ${countTotalSectionFields(vars, serialEntries)}`
                         : `${vars.filter(v => fieldValues[v.key]?.trim()).length} / ${vars.length}`}
                     </span>
                   </div>
@@ -461,6 +488,72 @@ export default function InfraSecurityBundlePage() {
                         </div>
                       </div>
                     )) : vars.map(v => {
+                      if (v.key === '시리얼번호') {
+                        return (
+                          <div key={v.key} style={{ gridColumn: '1 / -1' }}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              marginBottom: 8,
+                            }}>
+                              <label style={{
+                                display: 'block', fontSize: 12, fontWeight: 600, color: '#4a5568',
+                              }}>
+                                {v.label}
+                              </label>
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: '#2b6cb0',
+                                background: '#ebf8ff',
+                                borderRadius: 999,
+                                padding: '2px 8px',
+                              }}>
+                                수량 기준 {serialEntries.length}개
+                              </span>
+                            </div>
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: '10px 16px',
+                            }}>
+                              {serialEntries.map((entry, index) => (
+                                <div key={entry.id}>
+                                  <label style={{
+                                    display: 'block',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: '#4a5568',
+                                    marginBottom: 4,
+                                  }}>
+                                    시리얼 번호 {index + 1}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={entry.value}
+                                    onChange={e => handleSerialChange(entry.id, e.target.value)}
+                                    placeholder={getSerialPlaceholder(index)}
+                                    style={{
+                                      width: '100%',
+                                      padding: '8px 12px',
+                                      border: '1px solid #e2e8f0',
+                                      borderRadius: 6,
+                                      fontSize: 13,
+                                      outline: 'none',
+                                      boxSizing: 'border-box',
+                                      background: '#fff',
+                                    }}
+                                    onFocus={e => e.target.style.borderColor = '#3182ce'}
+                                    onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+
                       const isWide = v.key === '발주명';
                       const isAutoFilled = autoFilledKeys.has(v.key) && !!fieldValues[v.key]?.trim();
                       return (
@@ -711,45 +804,31 @@ export default function InfraSecurityBundlePage() {
 }
 
 function getPlaceholder(key: string): string {
-  const map: Record<string, string> = {
-    '발주번호': 'PO-20260319-0043',
-    '발주명': '[베트남 하노이 센터] Extreme 7520 스위치 1대 구매 건',
-    '발주일자': '2026/03/19',
-    '납품기한': '2026/03/30',
-    '제조사': 'EXTREME',
-    '모델명': '7520-48Y-8C-AC-F',
-    '수량': '1',
-    '시리얼번호': 'SM022609Q-40056',
-    'OS버전': '33.5.2.118',
-    '입고일자': '2026/03/30',
-    '검수일자': '2026/03/31',
-    '납품장소': '가산2 IDC',
-    '공급사': '아이클라우드 주식회사',
-    '공급사_약칭': '아이클라우드',
-    '공급사담당자': '전진호',
-    '유지보수종료일': '2027-03-31',
-    '출입자1_회사명': '아이클라우드',
-    '출입자1_이름': '이원재',
-    '출입자1_직책': '과장',
-    '출입자1_연락처': '010-3618-7518',
-    '출입자2_회사명': '아이클라우드',
-    '출입자2_이름': '송봉근',
-    '출입자2_직책': '사원',
-    '출입자2_연락처': '010-8961-3488',
-  };
-  return map[key] || '';
+  return key === '공급사담당자' ? '전진호' : '';
 }
 
 function createEmptyAccessPerson(id: number): AccessPerson {
   return { id, company: '', name: '', position: '', contact: '' };
 }
 
+function createEmptySerialEntry(id: number): SerialEntry {
+  return { id, value: '' };
+}
+
 function nextAccessPersonId(people: AccessPerson[]): number {
   return people.reduce((maxId, person) => Math.max(maxId, person.id), 0) + 1;
 }
 
-function buildSubmissionFieldValues(fieldValues: Record<string, string>, accessPeople: AccessPerson[]) {
+function buildSubmissionFieldValues(fieldValues: Record<string, string>, accessPeople: AccessPerson[], serialEntries: SerialEntry[]) {
   const nextValues: Record<string, unknown> = { ...fieldValues };
+  const serialValues = serialEntries.map(entry => entry.value.trim());
+  nextValues.__serial_numbers = serialValues;
+  nextValues['시리얼번호'] = serialValues.filter(Boolean).join('\n');
+  serialValues.forEach((serial, index) => {
+    const serialNumber = index + 1;
+    nextValues[`시리얼번호${serialNumber}`] = serial;
+    nextValues[`시리얼번호_${serialNumber}`] = serial;
+  });
   accessPeople.forEach((person, index) => {
     const personNumber = index + 1;
     nextValues[`출입자${personNumber}_회사명`] = person.company;
@@ -767,10 +846,41 @@ function buildSubmissionFieldValues(fieldValues: Record<string, string>, accessP
 }
 
 function getAccessPlaceholder(key: string, index: number): string {
-  const samples = [
-    { company: '아이클라우드', name: '이원재', position: '과장', contact: '010-3618-7518' },
-    { company: '아이클라우드', name: '송봉근', position: '사원', contact: '010-8961-3488' },
-  ];
-  const sample = samples[index] || samples[samples.length - 1];
-  return sample[key as keyof typeof sample] || '';
+  return '';
+}
+
+function parseQuantity(value: string | undefined): number {
+  const parsed = Number.parseInt((value || '').trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return Math.min(parsed, 100);
+}
+
+function syncSerialEntries(entries: SerialEntry[], desiredCount: number): SerialEntry[] {
+  if (entries.length === desiredCount) return entries;
+  if (entries.length > desiredCount) return entries.slice(0, desiredCount);
+
+  const next = [...entries];
+  let nextId = next.reduce((maxId, entry) => Math.max(maxId, entry.id), 0) + 1;
+  while (next.length < desiredCount) {
+    next.push(createEmptySerialEntry(nextId));
+    nextId += 1;
+  }
+  return next;
+}
+
+function countFilledSectionFields(vars: BundleVariable[], fieldValues: Record<string, string>, serialEntries: SerialEntry[]) {
+  return vars.reduce((count, variable) => {
+    if (variable.key === '시리얼번호') {
+      return count + serialEntries.filter(entry => entry.value.trim()).length;
+    }
+    return count + ((fieldValues[variable.key] || '').trim() ? 1 : 0);
+  }, 0);
+}
+
+function countTotalSectionFields(vars: BundleVariable[], serialEntries: SerialEntry[]) {
+  return vars.reduce((count, variable) => count + (variable.key === '시리얼번호' ? serialEntries.length : 1), 0);
+}
+
+function getSerialPlaceholder(index: number): string {
+  return '';
 }

@@ -2,7 +2,7 @@ import io
 import json
 import re
 import zipfile
-from copy import copy
+from copy import copy, deepcopy
 from typing import List
 from urllib.parse import quote
 
@@ -80,27 +80,167 @@ def get_bundle(
 
 
 def _render_docx(template_data: bytes, field_values: dict) -> bytes:
-    replacements = {f"{{{{{key}}}}}": value for key, value in field_values.items()}
+    from docx import Document
+
+    serial_numbers = _extract_serial_numbers(field_values)
+    doc = Document(io.BytesIO(template_data))
+
+    if len(serial_numbers) > 1:
+        _expand_docx_serial_rows(doc, serial_numbers)
+
+    output = io.BytesIO()
+    doc.save(output)
+
     return replace_text_in_office_package(
-        template_data,
-        replacements,
+        output.getvalue(),
+        _build_scalar_replacements(field_values),
         xml_prefixes=("word/",),
         escape_xml=True,
     )
 
 
 def _render_xlsx(template_data: bytes, field_values: dict) -> bytes:
-    replacements = {
-        f"{{{{{key}}}}}": value
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(template_data))
+    serial_numbers = _extract_serial_numbers(field_values)
+
+    if len(serial_numbers) > 1:
+        for ws in wb.worksheets:
+            _expand_xlsx_serial_rows(ws, serial_numbers)
+
+    scalar_replacements = _build_scalar_replacements(field_values)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if not isinstance(cell.value, str):
+                    continue
+                value = cell.value
+                for placeholder, replacement in scalar_replacements.items():
+                    value = value.replace(placeholder, "" if replacement is None else str(replacement))
+                cell.value = value
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def _extract_serial_numbers(field_values: dict) -> list[str]:
+    serials = field_values.get("__serial_numbers")
+    if isinstance(serials, list):
+        normalized = [str(serial or "").strip() for serial in serials]
+        if normalized:
+            return normalized
+
+    fallback = []
+    for idx in range(1, 200):
+        key = f"시리얼번호{idx}"
+        if key not in field_values:
+            if idx > 1:
+                break
+            continue
+        fallback.append(str(field_values.get(key, "") or "").strip())
+
+    if fallback:
+        return fallback
+
+    return [str(field_values.get("시리얼번호", "") or "").strip()]
+
+
+def _build_scalar_replacements(field_values: dict) -> dict[str, object]:
+    scalar_values = {
+        key: value
         for key, value in field_values.items()
         if isinstance(value, (str, int, float)) or value is None
     }
-    return replace_text_in_office_package(
-        template_data,
-        replacements,
-        xml_prefixes=("xl/",),
-        escape_xml=True,
-    )
+    serial_numbers = _extract_serial_numbers(field_values)
+    filled_serials = [serial for serial in serial_numbers if serial]
+
+    if filled_serials:
+        scalar_values["시리얼번호"] = "\n".join(filled_serials)
+    else:
+        scalar_values.setdefault("시리얼번호", "")
+
+    for idx, serial in enumerate(serial_numbers, 1):
+        scalar_values[f"시리얼번호{idx}"] = serial
+        scalar_values[f"시리얼번호_{idx}"] = serial
+
+    return {f"{{{{{key}}}}}": value for key, value in scalar_values.items()}
+
+
+def _replace_text_in_docx_element(element, old: str, new: str):
+    for node in element.iter():
+        if not getattr(node, "tag", "").endswith("}t"):
+            continue
+        if node.text and old in node.text:
+            node.text = node.text.replace(old, new)
+
+
+def _expand_docx_serial_rows(doc, serial_numbers: list[str]):
+    for table in doc.tables:
+        row_idx = 0
+        while row_idx < len(table.rows):
+            row = table.rows[row_idx]
+            row_text = " || ".join(cell.text for cell in row.cells)
+            if "{{시리얼번호}}" not in row_text:
+                row_idx += 1
+                continue
+
+            source_tr = row._tr
+            parent = source_tr.getparent()
+            source_index = parent.index(source_tr)
+            template_tr = deepcopy(source_tr)
+
+            for offset, serial in enumerate(serial_numbers):
+                if offset == 0:
+                    target_tr = source_tr
+                else:
+                    target_tr = deepcopy(template_tr)
+                    parent.insert(source_index + offset, target_tr)
+                _replace_text_in_docx_element(target_tr, "{{시리얼번호}}", serial)
+                _replace_text_in_docx_element(target_tr, "{{수량}}", "1")
+
+            row_idx += len(serial_numbers)
+
+
+def _copy_xlsx_row(ws, source_row: int, target_row: int, max_col: int):
+    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+    for col in range(1, max_col + 1):
+        source = ws.cell(source_row, col)
+        target = ws.cell(target_row, col)
+        target._style = copy(source._style)
+        target.font = copy(source.font)
+        target.fill = copy(source.fill)
+        target.border = copy(source.border)
+        target.alignment = copy(source.alignment)
+        target.number_format = source.number_format
+        target.protection = copy(source.protection)
+        target.value = source.value
+
+
+def _expand_xlsx_serial_rows(ws, serial_numbers: list[str]):
+    row = 1
+    max_col = ws.max_column
+    while row <= ws.max_row:
+        row_values = [ws.cell(row, col).value for col in range(1, max_col + 1)]
+        if not any(isinstance(value, str) and "{{시리얼번호}}" in value for value in row_values):
+            row += 1
+            continue
+
+        if len(serial_numbers) > 1:
+            ws.insert_rows(row + 1, len(serial_numbers) - 1)
+            for offset in range(1, len(serial_numbers)):
+                _copy_xlsx_row(ws, row, row + offset, max_col)
+
+        for offset, serial in enumerate(serial_numbers):
+            target_row = row + offset
+            for col in range(1, max_col + 1):
+                cell = ws.cell(target_row, col)
+                if isinstance(cell.value, str):
+                    cell.value = cell.value.replace("{{시리얼번호}}", serial)
+                    cell.value = cell.value.replace("{{수량}}", "1")
+
+        row += len(serial_numbers)
 
 
 def _extract_idc_access_people(field_values: dict) -> list[dict[str, str]]:
