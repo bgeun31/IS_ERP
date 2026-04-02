@@ -57,6 +57,12 @@ export default function Layout({ title, children }: LayoutProps) {
           <NavLink to="/documents/history" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
             <span className="nav-icon">📋</span> 작업 내역
           </NavLink>
+          <div style={{ margin: '12px 0 4px', padding: '0 16px', fontSize: 11, fontWeight: 600, color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            전용 템플릿
+          </div>
+          <NavLink to="/documents/infra-security" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+            <span className="nav-icon">🛡️</span> 인프라보안
+          </NavLink>
         </nav>
         <div className="sidebar-footer">
           <div><strong>{user?.username}</strong>{user?.is_admin && ' (관리자)'}</div>

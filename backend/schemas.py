@@ -147,6 +147,40 @@ class DocumentTemplateResponse(BaseModel):
         from_attributes = True
 
 
+class TemplateBundleItemResponse(BaseModel):
+    id: int
+    template_id: int
+    display_name: str
+    output_name_pattern: Optional[str] = None
+    file_type: Optional[str] = None
+    order: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class TemplateBundleResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    variables: list = []
+    items: List[TemplateBundleItemResponse] = []
+    created_at: datetime
+    created_by_username: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BundlePurchaseOrderExtractResponse(BaseModel):
+    filename: str
+    field_values: dict
+    extracted_keys: List[str] = []
+    inferred_keys: List[str] = []
+    missing_keys: List[str] = []
+    warnings: List[str] = []
+
+
 class DocumentRecordCreate(BaseModel):
     template_id: int
     title: str

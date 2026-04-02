@@ -124,6 +124,16 @@ export default function DocumentCreatePage() {
     fieldValuesRef.current = newValues;
     setFieldValues(newValues);
 
+    // 파일명에 변수가 포함된 경우 제목 자동 완성
+    const tmpl = selectedTemplateRef.current;
+    if (tmpl) {
+      const baseName = tmpl.original_filename.replace(/\.[^.]+$/, '');
+      if (baseName.includes('{{')) {
+        const autoTitle = baseName.replace(/\{\{([^{}]+)\}\}/g, (_, k) => newValues[k.trim()] || `{{${k}}}`);
+        setTitle(autoTitle);
+      }
+    }
+
     if (renderTimerRef.current) clearTimeout(renderTimerRef.current);
     renderTimerRef.current = setTimeout(() => {
       renderPreview(fieldValuesRef.current);
@@ -411,7 +421,17 @@ export default function DocumentCreatePage() {
                 )}
 
                 {/* ── 섹션: 저장 설정 ── */}
-                <SectionHeader icon="💾" title="저장 설정" />
+                {(() => {
+                  const baseName = selectedTemplate.original_filename.replace(/\.[^.]+$/, '');
+                  const isAutoTitle = baseName.includes('{{');
+                  return (
+                    <SectionHeader
+                      icon="💾"
+                      title="저장 설정"
+                      hint={isAutoTitle ? '변수 입력 시 제목이 자동으로 완성됩니다' : undefined}
+                    />
+                  );
+                })()}
                 <div style={{
                   background: '#fff',
                   border: `1.5px solid ${title.trim() ? '#9ae6b4' : '#e2e8f0'}`,

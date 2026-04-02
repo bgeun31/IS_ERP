@@ -1,5 +1,16 @@
 import axios from 'axios';
-import type { DeviceListItem, DeviceSnapshot, DocumentRecord, DocumentTemplate, DocumentVariable, LogFile, UploadResponse, User } from '../types';
+import type {
+  BundlePurchaseOrderExtractResult,
+  DeviceListItem,
+  DeviceSnapshot,
+  DocumentRecord,
+  DocumentTemplate,
+  DocumentVariable,
+  LogFile,
+  TemplateBundle,
+  UploadResponse,
+  User,
+} from '../types';
 
 const api = axios.create({ baseURL: '/api' });
 
@@ -68,5 +79,13 @@ export const createRecord = (formData: FormData) =>
 export const deleteRecord = (id: number) => api.delete(`/documents/records/${id}`);
 export const getRecordFile = (id: number) =>
   api.get(`/documents/records/${id}/file`, { responseType: 'arraybuffer' });
+
+// Documents - Bundles
+export const getBundles = () => api.get<TemplateBundle[]>('/documents/bundles');
+export const getBundle = (id: number) => api.get<TemplateBundle>(`/documents/bundles/${id}`);
+export const generateBundle = (id: number, formData: FormData) =>
+  api.post(`/documents/bundles/${id}/generate`, formData, { responseType: 'arraybuffer' });
+export const extractBundlePurchaseOrder = (id: number, formData: FormData) =>
+  api.post<BundlePurchaseOrderExtractResult>(`/documents/bundles/${id}/purchase-order/extract`, formData);
 
 export default api;

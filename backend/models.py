@@ -123,6 +123,39 @@ class DocumentTemplate(Base):
     records = relationship("DocumentRecord", back_populates="template", cascade="all, delete-orphan")
 
 
+class TemplateBundle(Base):
+    __tablename__ = "template_bundles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(String(500))
+    variables = Column(JSON)  # [{"key":"..","label":"..","section":".."}]
+    created_at = Column(DateTime, server_default=func.now())
+    created_by = Column(Integer, ForeignKey("users.id"))
+
+    creator = relationship("User", foreign_keys=[created_by])
+    items = relationship(
+        "TemplateBundleItem",
+        back_populates="bundle",
+        cascade="all, delete-orphan",
+        order_by="TemplateBundleItem.order",
+    )
+
+
+class TemplateBundleItem(Base):
+    __tablename__ = "template_bundle_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bundle_id = Column(Integer, ForeignKey("template_bundles.id"))
+    template_id = Column(Integer, ForeignKey("document_templates.id"))
+    display_name = Column(String(255), nullable=False)
+    output_name_pattern = Column(String(255))
+    order = Column(Integer, default=0)
+
+    bundle = relationship("TemplateBundle", back_populates="items")
+    template = relationship("DocumentTemplate")
+
+
 class DocumentRecord(Base):
     __tablename__ = "document_records"
 

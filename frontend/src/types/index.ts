@@ -104,6 +104,41 @@ export interface DocumentTemplate {
   created_by_username: string | null;
 }
 
+export interface BundleVariable {
+  key: string;
+  label: string;
+  type: string;
+  section: string;
+}
+
+export interface TemplateBundleItem {
+  id: number;
+  template_id: number;
+  display_name: string;
+  output_name_pattern: string | null;
+  file_type: 'docx' | 'xlsx' | null;
+  order: number;
+}
+
+export interface TemplateBundle {
+  id: number;
+  name: string;
+  description: string | null;
+  variables: BundleVariable[];
+  items: TemplateBundleItem[];
+  created_at: string;
+  created_by_username: string | null;
+}
+
+export interface BundlePurchaseOrderExtractResult {
+  filename: string;
+  field_values: Record<string, string>;
+  extracted_keys: string[];
+  inferred_keys: string[];
+  missing_keys: string[];
+  warnings: string[];
+}
+
 export interface DocumentRecord {
   id: number;
   template_id: number;

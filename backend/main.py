@@ -8,6 +8,7 @@ from config import settings
 from database import Base, SessionLocal, create_database_if_not_exists, engine
 from minio_client import ensure_bucket
 from routers.auth_router import router as auth_router
+from routers.bundles_router import router as bundles_router
 from routers.devices_router import router as devices_router
 from routers.documents_router import router as documents_router
 from routers.logs_router import router as logs_router
@@ -43,6 +44,16 @@ async def lifespan(app: FastAPI):
     # MinIO 버킷 초기화
     ensure_bucket()
 
+    # 인프라보안 전용 템플릿 번들 시드
+    from seeds.infra_security import seed_infra_security_bundle
+    db2 = SessionLocal()
+    try:
+        seed_infra_security_bundle(db2)
+    except Exception as e:
+        print(f"[Seed] 번들 시드 오류: {e}")
+    finally:
+        db2.close()
+
     yield
 
 
@@ -65,6 +76,7 @@ app.include_router(users_router)
 app.include_router(logs_router)
 app.include_router(devices_router)
 app.include_router(documents_router)
+app.include_router(bundles_router)
 
 
 @app.get("/api/health")

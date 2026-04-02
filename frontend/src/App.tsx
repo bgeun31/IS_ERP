@@ -5,6 +5,7 @@ import DeviceDetailPage from './pages/DeviceDetailPage';
 import DocumentCreatePage from './pages/DocumentCreatePage';
 import DocumentHistoryPage from './pages/DocumentHistoryPage';
 import DocumentTemplatePage from './pages/DocumentTemplatePage';
+import InfraSecurityBundlePage from './pages/InfraSecurityBundlePage';
 import LoginPage from './pages/LoginPage';
 import LogListPage from './pages/LogListPage';
 import LogUploadPage from './pages/LogUploadPage';
@@ -33,6 +34,7 @@ function AppRoutes() {
       <Route path="/documents/templates" element={<ProtectedRoute><DocumentTemplatePage /></ProtectedRoute>} />
       <Route path="/documents/create" element={<ProtectedRoute><DocumentCreatePage /></ProtectedRoute>} />
       <Route path="/documents/history" element={<ProtectedRoute><DocumentHistoryPage /></ProtectedRoute>} />
+      <Route path="/documents/infra-security" element={<ProtectedRoute><InfraSecurityBundlePage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
