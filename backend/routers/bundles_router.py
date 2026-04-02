@@ -362,11 +362,11 @@ def _render_idc_access_xlsx(template_data: bytes, field_values: dict) -> bytes:
     wb = openpyxl.load_workbook(io.BytesIO(template_data))
     ws = wb.active
     people = _extract_idc_access_people(field_values)
-    start_row = 7
-    end_row = max(18, start_row + len(people) - 1)
+    start_row = 9
+    end_row = max(40, start_row + len(people) - 1)
 
     for row in range(start_row, end_row + 1):
-        _copy_row_style(ws, 7 if row == 7 else 8, row)
+        _copy_row_style(ws, 9 if row == 9 else 10, row)
         for col in range(1, 6):
             ws.cell(row, col).value = ""
 

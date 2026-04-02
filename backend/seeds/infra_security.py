@@ -107,12 +107,14 @@ XLSX_FROM_SCRATCH = [
     {
         "name": "납품확인서",
         "display_name": "납품확인서",
+        "sample_file": "납품확인서_Extreme 7520 스위치 1대 구매_260330.xls",
         "output_pattern": "납품확인서",
         "description": "납품/검수 확인서",
     },
     {
         "name": "IDC 출입명단",
         "display_name": "IDC 출입명단",
+        "sample_file": "IDC 출입명단.xls",
         "output_pattern": "IDC 출입명단",
         "description": "IDC 출입 및 권한 신청서",
     },
@@ -168,152 +170,185 @@ def _create_xlsx_template_from_sample(sample_path: str, replacements: dict) -> b
     )
 
 
-def _create_delivery_confirmation_xlsx() -> bytes:
-    """납품확인서 XLSX 템플릿을 처음부터 생성."""
+def _xls_colour_to_rgb(book, colour_index: int) -> str | None:
+    if colour_index in (None, 0x7FFF):
+        return None
+    rgb = book.colour_map.get(colour_index)
+    if not rgb:
+        return None
+    return "".join(f"{part:02X}" for part in rgb)
+
+
+def _xls_border_style(style_code: int) -> str | None:
+    return {
+        0: None,
+        1: "thin",
+        2: "medium",
+        3: "dashed",
+        4: "dotted",
+        5: "thick",
+        6: "double",
+        7: "hair",
+        8: "mediumDashed",
+        9: "dashDot",
+        10: "mediumDashDot",
+        11: "dashDotDot",
+        12: "mediumDashDotDot",
+        13: "slantDashDot",
+    }.get(style_code)
+
+
+def _openpyxl_side(book, line_style: int, colour_index: int):
+    from openpyxl.styles import Color, Side
+
+    style = _xls_border_style(line_style)
+    if not style:
+        return Side()
+    color = _xls_colour_to_rgb(book, colour_index)
+    return Side(style=style, color=Color(rgb=color) if color else None)
+
+
+def _apply_xls_cell_style(book, xf, cell):
+    from openpyxl.styles import Alignment, Border, Color, Font, PatternFill
+
+    font = book.font_list[xf.font_index]
+    font_color = _xls_colour_to_rgb(book, font.colour_index)
+    cell.font = Font(
+        name=font.name,
+        size=(font.height / 20) if font.height else None,
+        bold=bool(font.bold),
+        italic=bool(font.italic),
+        underline="single" if font.underline_type else None,
+        strike=bool(font.struck_out),
+        color=Color(rgb=font_color) if font_color else None,
+    )
+
+    background = xf.background
+    fill_color = _xls_colour_to_rgb(book, background.pattern_colour_index)
+    if background.fill_pattern and fill_color:
+        cell.fill = PatternFill(fill_type="solid", fgColor=fill_color, bgColor=fill_color)
+
+    border = xf.border
+    cell.border = Border(
+        left=_openpyxl_side(book, border.left_line_style, border.left_colour_index),
+        right=_openpyxl_side(book, border.right_line_style, border.right_colour_index),
+        top=_openpyxl_side(book, border.top_line_style, border.top_colour_index),
+        bottom=_openpyxl_side(book, border.bottom_line_style, border.bottom_colour_index),
+    )
+
+    alignment = xf.alignment
+    cell.alignment = Alignment(
+        horizontal={
+            1: "left",
+            2: "center",
+            3: "right",
+            5: "justify",
+            6: "centerContinuous",
+            7: "distributed",
+        }.get(alignment.hor_align),
+        vertical={
+            0: "top",
+            1: "center",
+            2: "bottom",
+            3: "justify",
+            4: "distributed",
+        }.get(alignment.vert_align),
+        wrap_text=bool(alignment.text_wrapped),
+        shrink_to_fit=bool(alignment.shrink_to_fit),
+        text_rotation=alignment.rotation if 0 <= alignment.rotation <= 180 else 0,
+    )
+
+    fmt = book.format_map.get(xf.format_key)
+    if fmt and fmt.format_str:
+        cell.number_format = fmt.format_str
+
+
+def _convert_xls_sample_to_xlsx(sample_path: str, replacements: dict) -> bytes:
     import openpyxl
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    import xlrd
 
-    wb = openpyxl.Workbook()
+    book = xlrd.open_workbook(sample_path, formatting_info=True)
+    out_wb = openpyxl.Workbook()
+    out_wb.remove(out_wb.active)
+
+    for sheet in book.sheets():
+        ws = out_wb.create_sheet(title=sheet.name[:31] or "Sheet1")
+
+        for col_idx, col_info in sheet.colinfo_map.items():
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx + 1)].width = col_info.width / 256
+
+        for row_idx, row_info in sheet.rowinfo_map.items():
+            ws.row_dimensions[row_idx + 1].height = row_info.height / 20
+            ws.row_dimensions[row_idx + 1].hidden = bool(row_info.hidden)
+
+        for row_idx in range(sheet.nrows):
+            for col_idx in range(sheet.ncols):
+                source = sheet.cell(row_idx, col_idx)
+                target = ws.cell(row_idx + 1, col_idx + 1)
+                value = source.value
+                if isinstance(value, str):
+                    for old, new in replacements.items():
+                        value = value.replace(old, new)
+                if source.ctype != xlrd.XL_CELL_EMPTY:
+                    target.value = value
+
+                xf = book.xf_list[sheet.cell_xf_index(row_idx, col_idx)]
+                _apply_xls_cell_style(book, xf, target)
+
+        for rlo, rhi, clo, chi in sheet.merged_cells:
+            ws.merge_cells(
+                start_row=rlo + 1,
+                end_row=rhi,
+                start_column=clo + 1,
+                end_column=chi,
+            )
+
+    buf = io.BytesIO()
+    out_wb.save(buf)
+    return buf.getvalue()
+
+
+def _set_sheet_cell(ws, row: int, col: int, value: str) -> None:
+    ws.cell(row=row, column=col).value = value
+
+
+def _apply_delivery_confirmation_placeholders(xlsx_data: bytes) -> bytes:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_data))
     ws = wb.active
-    ws.title = "인수증"
-
-    thin = Side(style="thin")
-    border = Border(top=thin, left=thin, right=thin, bottom=thin)
-    header_font = Font(bold=True, size=14)
-    label_font = Font(bold=True, size=10)
-    center = Alignment(horizontal="center", vertical="center")
-    left = Alignment(horizontal="left", vertical="center")
-    header_fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
-
-    # 제목
-    ws.merge_cells("A1:G1")
-    ws["A1"] = "납품 / 검수 확인서"
-    ws["A1"].font = header_font
-    ws["A1"].alignment = center
-
-    ws.merge_cells("A3:B3")
-    ws["A3"] = "수 신:"
-    ws["A3"].font = label_font
-    ws["C3"] = "네이버클라우드 귀하"
-
-    ws.merge_cells("A4:B4")
-    ws["A4"] = "일 자:"
-    ws["A4"].font = label_font
-    ws["C4"] = "{{입고일자}}"
-
-    ws.merge_cells("A6:B6")
-    ws["A6"] = "건 명:"
-    ws["A6"].font = label_font
-    ws.merge_cells("C6:G6")
-    ws["C6"] = "{{발주명}}"
-
-    # 테이블 헤더
-    headers = ["번호", "품명", "제품번호(S/N)", "수량", "비고"]
-    col_widths = [8, 30, 25, 10, 15]
-    for i, (h, w) in enumerate(zip(headers, col_widths), 1):
-        cell = ws.cell(row=8, column=i, value=h)
-        cell.font = label_font
-        cell.alignment = center
-        cell.border = border
-        cell.fill = header_fill
-        ws.column_dimensions[chr(64 + i)].width = w
-
-    # 데이터 행
-    items = [
-        ("1", "{{모델명}}", "{{시리얼번호}}", "{{수량}}", ""),
-    ]
-    for r, (no, name, sn, qty, note) in enumerate(items, 9):
-        for c, val in enumerate([no, name, sn, qty, note], 1):
-            cell = ws.cell(row=r, column=c, value=val)
-            cell.border = border
-            cell.alignment = center if c != 2 else left
-
-    # 빈 행
-    for r in range(10, 19):
-        for c in range(1, 6):
-            ws.cell(row=r, column=c).border = border
-
-    # 하단 문구
-    ws.merge_cells("A20:G20")
-    ws["A20"] = "상기 물품을 정히 납품/인수함"
-    ws["A20"].alignment = center
-    ws["A20"].font = label_font
-
-    ws.merge_cells("A22:B22")
-    ws["A22"] = "납품/인수일:"
-    ws["A22"].font = label_font
-    ws["C22"] = "{{입고일자}}"
-
-    ws.merge_cells("A23:B23")
-    ws["A23"] = "납품확인/인수자:"
-    ws["A23"].font = label_font
-    ws["C23"] = "(인)"
+    _set_sheet_cell(ws, 7, 3, "{{입고일자}}")
+    _set_sheet_cell(ws, 11, 3, "{{발주명}}")
+    _set_sheet_cell(ws, 15, 3, "{{모델명}}")
+    _set_sheet_cell(ws, 15, 4, "{{시리얼번호}}")
+    _set_sheet_cell(ws, 15, 5, "{{수량}}")
+    _set_sheet_cell(ws, 16, 5, "{{수량}}")
+    _set_sheet_cell(ws, 17, 5, "{{수량}}")
+    _set_sheet_cell(ws, 18, 5, "{{수량}}")
+    _set_sheet_cell(ws, 32, 5, "{{입고일자}}")
 
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
-def _create_idc_access_xlsx() -> bytes:
-    """IDC 출입명단 XLSX 템플릿을 처음부터 생성."""
+def _apply_idc_access_placeholders(xlsx_data: bytes) -> bytes:
     import openpyxl
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-    wb = openpyxl.Workbook()
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_data))
     ws = wb.active
-    ws.title = "IDC출입 및 권한 신청"
-
-    thin = Side(style="thin")
-    border = Border(top=thin, left=thin, right=thin, bottom=thin)
-    header_font = Font(bold=True, size=14)
-    label_font = Font(bold=True, size=10)
-    center = Alignment(horizontal="center", vertical="center")
-    header_fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
-
-    ws.merge_cells("A1:E1")
-    ws["A1"] = "IDC 출입 및 권한 신청"
-    ws["A1"].font = header_font
-    ws["A1"].alignment = center
-
-    ws.merge_cells("A3:E3")
-    ws["A3"] = "※ 복수 인원의 경우 아래 행에 추가 작성, * 표시 항목은 필수"
-    ws["A3"].font = Font(size=9, color="FF0000")
-
-    headers = ["사번", "*회사명", "*이름", "*직책", "*연락처"]
-    col_widths = [12, 20, 15, 12, 20]
-    for i, (h, w) in enumerate(zip(headers, col_widths), 1):
-        cell = ws.cell(row=5, column=i, value=h)
-        cell.font = label_font
-        cell.alignment = center
-        cell.border = border
-        cell.fill = header_fill
-        ws.column_dimensions[chr(64 + i)].width = w
-
-    # 안내 행
-    guide = ["내부직원은 사번만 입력", "", "", "", ""]
-    for i, val in enumerate(guide, 1):
-        cell = ws.cell(row=6, column=i, value=val)
-        cell.border = border
-        cell.font = Font(size=9, italic=True, color="808080")
-
-    # 출입자 1
-    data1 = ["", "{{출입자1_회사명}}", "{{출입자1_이름}}", "{{출입자1_직책}}", "{{출입자1_연락처}}"]
-    for i, val in enumerate(data1, 1):
-        cell = ws.cell(row=7, column=i, value=val)
-        cell.border = border
-        cell.alignment = center
-
-    # 출입자 2
-    data2 = ["", "{{출입자2_회사명}}", "{{출입자2_이름}}", "{{출입자2_직책}}", "{{출입자2_연락처}}"]
-    for i, val in enumerate(data2, 1):
-        cell = ws.cell(row=8, column=i, value=val)
-        cell.border = border
-        cell.alignment = center
-
-    # 추가 빈 행
-    for r in range(9, 19):
-        for c in range(1, 6):
-            ws.cell(row=r, column=c).border = border
+    _set_sheet_cell(ws, 9, 1, "")
+    _set_sheet_cell(ws, 9, 2, "{{출입자1_회사명}}")
+    _set_sheet_cell(ws, 9, 3, "{{출입자1_이름}}")
+    _set_sheet_cell(ws, 9, 4, "{{출입자1_직책}}")
+    _set_sheet_cell(ws, 9, 5, "{{출입자1_연락처}}")
+    _set_sheet_cell(ws, 10, 1, "")
+    _set_sheet_cell(ws, 10, 2, "{{출입자2_회사명}}")
+    _set_sheet_cell(ws, 10, 3, "{{출입자2_이름}}")
+    _set_sheet_cell(ws, 10, 4, "{{출입자2_직책}}")
+    _set_sheet_cell(ws, 10, 5, "{{출입자2_연락처}}")
+    for col in range(1, 6):
+        _set_sheet_cell(ws, 11, col, "")
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -431,12 +466,16 @@ def seed_infra_security_bundle(db_session):
 
     # 2) XLS → XLSX 변환이 필요한 파일 (새로 생성/업데이트)
     for sdef in XLSX_FROM_SCRATCH:
-        if sdef["name"] == "납품확인서":
-            data = _create_delivery_confirmation_xlsx()
-        elif sdef["name"] == "IDC 출입명단":
-            data = _create_idc_access_xlsx()
-        else:
+        sample_path = SAMPLE_DIR / sdef["sample_file"]
+        if not sample_path.exists():
+            print(f"[Seed] 샘플 파일 없음: {sample_path}, 스킵")
             continue
+
+        data = _convert_xls_sample_to_xlsx(str(sample_path), REPLACEMENTS)
+        if sdef["name"] == "납품확인서":
+            data = _apply_delivery_confirmation_placeholders(data)
+        elif sdef["name"] == "IDC 출입명단":
+            data = _apply_idc_access_placeholders(data)
 
         template_filename = f"tpl_{sdef['name']}.xlsx"
         tpl = _upsert_template(
