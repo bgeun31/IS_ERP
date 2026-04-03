@@ -428,16 +428,24 @@ def _build_scalar_replacements(field_values: dict, *, serial_separator: str) -> 
 def _build_docx_legacy_date_replacements(field_values: dict) -> dict[str, str]:
     replacements: dict[str, str] = {}
 
-    for key, sample_date in (
-        ("발주일자", "2026 년  03 월  19 일"),
-        ("입고일자", "2026 년  03 월  30 일"),
-        ("검수일자", "2026 년  03 월  31 일"),
+    for key, sample_parts in (
+        ("발주일자", ("2026", "03", "19")),
+        ("입고일자", ("2026", "03", "30")),
+        ("검수일자", ("2026", "03", "31")),
     ):
         parts = _split_date_parts(field_values.get(key))
         if not parts:
             continue
         year, month, day = parts
-        replacements[sample_date] = f"{year} 년  {month} 월  {day} 일"
+        sample_year, sample_month, sample_day = sample_parts
+        replacements.update(
+            {
+                f"{sample_year} 년  {sample_month} 월  {sample_day} 일": f"{year} 년  {month} 월  {day} 일",
+                f"{sample_year} 년 {sample_month} 월 {sample_day} 일": f"{year} 년 {month} 월 {day} 일",
+                f"{sample_year} 년  {sample_month} 월 {sample_day}일": f"{year} 년  {month} 월 {day}일",
+                f"{sample_year} 년 {sample_month} 월 {sample_day}일": f"{year} 년 {month} 월 {day}일",
+            }
+        )
 
     return replacements
 
