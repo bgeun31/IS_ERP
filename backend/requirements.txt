@@ -17,3 +17,5 @@ PyMuPDF>=1.24.0
 xlwt>=1.3.0
 xlutils>=2.0.0
 olefile>=0.47
+aspose-cells>=26.3.0
+jdk4py>=21.0.8.1

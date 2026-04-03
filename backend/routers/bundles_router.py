@@ -253,7 +253,9 @@ def _render_cmdb_xlsm(template_data: bytes, field_values: dict) -> bytes:
     for offset in range(row_count):
         row = base_row + offset
         serial = serial_numbers[offset] if offset < len(serial_numbers) else ""
-        ws.cell(row, 2).value = offset + 1
+        ci_cell = ws.cell(row, 2)
+        ci_cell.number_format = "@"
+        ci_cell.value = str(offset + 1)
         ws.cell(row, 3).value = ""
         ws.cell(row, 4).value = manufacturer
         ws.cell(row, 5).value = model_name
@@ -523,11 +525,11 @@ def _render_idc_access_xlsx(template_data: bytes, field_values: dict) -> bytes:
     wb = openpyxl.load_workbook(io.BytesIO(template_data))
     ws = wb.active
     people = _extract_idc_access_people(field_values)
-    start_row = 9
+    start_row = 10
     end_row = max(40, start_row + len(people) - 1)
 
     for row in range(start_row, end_row + 1):
-        _copy_row_style(ws, 9 if row == 9 else 10, row)
+        _copy_row_style(ws, 10, row)
         for col in range(1, 6):
             ws.cell(row, col).value = ""
 
@@ -552,7 +554,8 @@ def _render_idc_access_xls(template_data: bytes, field_values: dict) -> bytes:
     writable = xl_copy(source)
     ws = writable.get_sheet(0)
     people = _extract_idc_access_people(field_values)
-    start_row = 11
+    start_row = 9
+    clear_until = max(start_row + len(people) - 1, 39)
     xf_indices = _get_xls_template_xf_indices(ws, start_row, 5)
 
     ws.set_panes_frozen(True)
@@ -560,15 +563,20 @@ def _render_idc_access_xls(template_data: bytes, field_values: dict) -> bytes:
     ws.set_horz_split_first_visible(8)
     ws.set_remove_splits(True)
 
-    for idx, person in enumerate(people):
-        row_idx = start_row + idx
-        values = [
-            "",
-            person["company"],
-            person["name"],
-            person["position"],
-            person["contact"],
-        ]
+    for row_idx in range(start_row, clear_until + 1):
+        person_idx = row_idx - start_row
+        person = people[person_idx] if person_idx < len(people) else None
+        values = (
+            [
+                "",
+                person["company"],
+                person["name"],
+                person["position"],
+                person["contact"],
+            ]
+            if person
+            else ["", "", "", "", ""]
+        )
         for col_idx, value in enumerate(values):
             _set_xls_text_cell(ws, row_idx, col_idx, value, xf_indices[col_idx])
 

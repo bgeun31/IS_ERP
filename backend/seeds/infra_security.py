@@ -5,7 +5,9 @@
 """
 
 import io
+import os
 import re
+import tempfile
 from pathlib import Path
 
 import minio_client
@@ -235,6 +237,78 @@ def _create_xlsx_template_from_sample(sample_path: str, replacements: dict) -> b
     )
 
 
+def _convert_xls_sample_to_clean_xlsx(sample_path: str) -> bytes:
+    import jdk4py
+    import openpyxl
+
+    os.environ.setdefault("JAVA_HOME", str(jdk4py.JAVA_HOME))
+
+    import asposecells
+
+    if not asposecells.isJVMStarted():
+        asposecells.startJVM()
+
+    pkg = asposecells.JPackage("com").aspose.cells
+    workbook = pkg.Workbook(sample_path)
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_output:
+        output_path = tmp_output.name
+
+    try:
+        workbook.save(output_path, pkg.SaveFormat.XLSX)
+        converted = Path(output_path).read_bytes()
+    finally:
+        Path(output_path).unlink(missing_ok=True)
+
+    wb = openpyxl.load_workbook(io.BytesIO(converted))
+    if "Evaluation Warning" in wb.sheetnames:
+        wb.remove(wb["Evaluation Warning"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _create_nbp_schedule_template(sample_path: str) -> bytes:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(sample_path)
+    ws = wb[wb.sheetnames[0]]
+    ws["A2"] = "{{제조사}}"
+    ws["B2"] = "{{공급사_약칭}}"
+    ws["C2"] = "{{발주번호}}"
+    ws["D2"] = "{{모델명}}"
+    ws["E2"] = "{{수량}}EA"
+    ws["F2"] = "{{발주일자}}"
+    ws["G2"] = "{{입고일자}}"
+    ws["H2"] = "{{입고일자}}"
+    ws["I2"] = "{{납품장소}}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _create_delivery_confirmation_template(sample_path: str) -> bytes:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(_convert_xls_sample_to_clean_xlsx(sample_path)))
+    ws = wb[wb.sheetnames[0]]
+    ws["C7"] = "{{입고일자_대시}}"
+    ws["C11"] = "{{발주명}}"
+    ws["C15"] = "{{모델명}}"
+    ws["D15"] = "{{시리얼번호}}"
+    ws["E15"] = "{{수량}}"
+    ws["E16"] = "{{수량}}"
+    ws["E17"] = "{{수량}}"
+    ws["E18"] = "{{유지보수수량}}"
+    ws["E32"] = "{{입고일자_한글여백}}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def _create_idc_access_xls_template(sample_path: str) -> bytes:
     import xlrd
     from xlutils.copy import copy as xl_copy
@@ -460,7 +534,7 @@ def _upsert_template(
 
 
 def seed_infra_security_bundle(db_session):
-    """인프라보안 전용 템플릿 번들 시드."""
+    """인프라보안 전용 템플릿 번들 메타데이터만 동기화."""
 
     admin = db_session.query(User).filter(User.is_admin.is_(True)).first()
     if not admin:
@@ -483,96 +557,38 @@ def seed_infra_security_bundle(db_session):
 
     print(f"[Seed] '{BUNDLE_NAME}' 번들 {'생성' if is_new_bundle else '동기화'} 중...")
 
-    templates_created = []
-    order = 0
-
     existing_items = {item.display_name: item for item in bundle.items}
-    desired_display_names = {tdef["display_name"] for tdef in TEMPLATE_DEFS} | {
-        sdef["display_name"] for sdef in XLSX_FROM_SCRATCH
-    }
+    template_defs = TEMPLATE_DEFS + XLSX_FROM_SCRATCH
+    desired_display_names = {tdef["display_name"] for tdef in template_defs}
 
     for display_name, item in list(existing_items.items()):
         if display_name not in desired_display_names:
             db_session.delete(item)
 
-    # 1) 기존 샘플 파일 기반 템플릿 생성/업데이트
-    for tdef in TEMPLATE_DEFS:
-        sample_path = SAMPLE_DIR / tdef["sample_file"]
-        if not sample_path.exists():
-            print(f"[Seed] 샘플 파일 없음: {sample_path}, 스킵")
-            continue
-
-        ext = sample_path.suffix.lower().lstrip(".")
-        file_type = ext
-
-        if ext == "docx":
-            data = _create_docx_template(str(sample_path), REPLACEMENTS)
-        elif ext == "xlsm":
-            data = sample_path.read_bytes()
-        else:
-            data = _create_xlsx_template_from_sample(str(sample_path), REPLACEMENTS)
-
-        template_filename = f"tpl_{tdef['name']}.{file_type}"
-        tpl = _upsert_template(
-            db_session,
-            admin,
-            f"[인프라보안] {tdef['name']}",
-            tdef.get("description", ""),
-            file_type,
-            template_filename,
-            data,
+    linked_count = 0
+    for order, tdef in enumerate(template_defs):
+        tpl = (
+            db_session.query(DocumentTemplate)
+            .filter(DocumentTemplate.name == f"[인프라보안] {tdef['name']}")
+            .first()
         )
         if not tpl:
+            print(f"[Seed]   템플릿 없음, 연결 스킵: {tdef['name']}")
             continue
 
-        templates_created.append((tpl, tdef, order))
-        order += 1
-        print(f"[Seed]   템플릿 반영: {tdef['name']} ({file_type})")
-
-    # 2) XLS → XLSX 변환이 필요한 파일 (새로 생성/업데이트)
-    for sdef in XLSX_FROM_SCRATCH:
-        sample_path = SAMPLE_DIR / sdef["sample_file"]
-        if not sample_path.exists():
-            print(f"[Seed] 샘플 파일 없음: {sample_path}, 스킵")
-            continue
-
-        if sdef["name"] == "납품확인서":
-            data = sample_path.read_bytes()
-            file_type = "xls"
-        elif sdef["name"] == "IDC 출입명단":
-            data = _create_idc_access_xls_template(str(sample_path))
-            file_type = "xls"
-        else:
-            continue
-
-        template_filename = f"tpl_{sdef['name']}.{file_type}"
-        tpl = _upsert_template(
-            db_session,
-            admin,
-            f"[인프라보안] {sdef['name']}",
-            sdef.get("description", ""),
-            file_type,
-            template_filename,
-            data,
-        )
-        if not tpl:
-            continue
-
-        templates_created.append((tpl, sdef, order))
-        order += 1
-        print(f"[Seed]   템플릿 반영: {sdef['name']} ({file_type}, 새로 생성)")
-
-    for tpl, tdef, idx in templates_created:
         item = existing_items.get(tdef["display_name"])
         if not item:
             item = TemplateBundleItem(bundle_id=bundle.id, display_name=tdef["display_name"])
             db_session.add(item)
+
         item.template_id = tpl.id
         item.output_name_pattern = tdef.get("output_pattern", tdef["display_name"])
-        item.order = idx
+        item.order = order
+        linked_count += 1
+        print(f"[Seed]   기존 템플릿 연결: {tdef['name']} ({tpl.file_type})")
 
     db_session.commit()
-    print(f"[Seed] '{BUNDLE_NAME}' 번들 반영 완료 ({len(templates_created)}개 템플릿)")
+    print(f"[Seed] '{BUNDLE_NAME}' 번들 동기화 완료 ({linked_count}개 템플릿 연결)")
 
 
 def _extract_variables(data: bytes, file_type: str) -> list:

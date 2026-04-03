@@ -1,6 +1,7 @@
 import io
 import re
 import zipfile
+from html import unescape
 from typing import Iterable
 from xml.sax.saxutils import escape
 
@@ -62,7 +63,7 @@ def extract_placeholders_from_office_package(
             if not name.endswith(".xml") or not name.startswith(prefixes):
                 continue
             try:
-                text = zf.read(name).decode("utf-8")
+                text = unescape(zf.read(name).decode("utf-8"))
             except UnicodeDecodeError:
                 continue
 
