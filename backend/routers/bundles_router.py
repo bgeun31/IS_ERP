@@ -169,13 +169,17 @@ def _render_docx(template_data: bytes, field_values: dict) -> bytes:
     from docx import Document
 
     doc = Document(io.BytesIO(template_data))
+    _replace_docx_paragraph_text(doc, _build_docx_legacy_date_replacements(field_values))
 
     output = io.BytesIO()
     doc.save(output)
 
+    replacements = _build_scalar_replacements(field_values, serial_separator=", ")
+    replacements.update(_build_docx_legacy_date_replacements(field_values))
+
     return replace_text_in_office_package(
         output.getvalue(),
-        _build_scalar_replacements(field_values, serial_separator=", "),
+        replacements,
         xml_prefixes=("word/",),
         escape_xml=True,
     )
@@ -281,6 +285,7 @@ def _render_delivery_confirmation_xls(template_data: bytes, field_values: dict) 
     from xlutils.copy import copy as xl_copy
 
     source = xlrd.open_workbook(file_contents=template_data, formatting_info=True)
+    source_sheet = source.sheet_by_index(0)
     writable = xl_copy(source)
     ws = writable.get_sheet(0)
 
@@ -310,9 +315,59 @@ def _render_delivery_confirmation_xls(template_data: bytes, field_values: dict) 
         xf_idx = xf_text[col_idx] if row_idx < 31 else xf_footer[col_idx]
         _set_xls_text_cell(ws, row_idx, col_idx, value, xf_idx)
 
+    _set_xls_multiline_row_height(ws, source_sheet, 14, values[(14, 3)], 14)
+
     output = io.BytesIO()
     writable.save(output)
     return output.getvalue()
+
+
+def _extract_purchase_items_for_delivery(field_values: dict) -> list[dict[str, str]]:
+    raw_items = field_values.get("__purchase_items")
+    normalized: list[dict[str, str]] = []
+
+    if isinstance(raw_items, list):
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "") or "").strip()
+            quantity = str(item.get("quantity", "") or "").strip()
+            unit = str(item.get("unit", "") or "").strip()
+            manufacturer = str(item.get("manufacturer", "") or "").strip()
+            delivery_place = str(item.get("delivery_place", "") or "").strip()
+            if not any([name, quantity, unit, manufacturer, delivery_place]):
+                continue
+            normalized.append(
+                {
+                    "name": name,
+                    "quantity": quantity,
+                    "unit": unit,
+                    "manufacturer": manufacturer,
+                    "delivery_place": delivery_place,
+                }
+            )
+
+    if normalized:
+        return normalized
+
+    model_name = str(field_values.get("모델명", "") or "").strip()
+    quantity = str(field_values.get("수량", "") or "").strip()
+    maintenance_quantity = str(field_values.get("유지보수수량", "") or "").strip()
+    fallback_items: list[dict[str, str]] = []
+
+    if model_name or quantity:
+        fallback_items.append({"name": model_name, "quantity": quantity, "unit": "EA", "manufacturer": "", "delivery_place": ""})
+    if maintenance_quantity:
+        fallback_items.append(
+            {
+                "name": f"{model_name} 유지보수".strip(),
+                "quantity": maintenance_quantity,
+                "unit": "EA",
+                "manufacturer": "",
+                "delivery_place": "",
+            }
+        )
+    return fallback_items
 
 
 def _extract_serial_numbers(field_values: dict) -> list[str]:
@@ -368,6 +423,67 @@ def _build_scalar_replacements(field_values: dict, *, serial_separator: str) -> 
         scalar_values[f"{key}_US"] = f"{month}/{day}/{year}"
 
     return {f"{{{{{key}}}}}": value for key, value in scalar_values.items()}
+
+
+def _build_docx_legacy_date_replacements(field_values: dict) -> dict[str, str]:
+    replacements: dict[str, str] = {}
+
+    for key, sample_date in (
+        ("발주일자", "2026 년  03 월  19 일"),
+        ("입고일자", "2026 년  03 월  30 일"),
+        ("검수일자", "2026 년  03 월  31 일"),
+    ):
+        parts = _split_date_parts(field_values.get(key))
+        if not parts:
+            continue
+        year, month, day = parts
+        replacements[sample_date] = f"{year} 년  {month} 월  {day} 일"
+
+    return replacements
+
+
+def _replace_docx_paragraph_text(doc, replacements: dict[str, str]) -> None:
+    if not replacements:
+        return
+
+    for paragraph in _iter_docx_paragraphs(doc):
+        full_text = "".join(run.text for run in paragraph.runs)
+        if not full_text:
+            continue
+        updated_text = full_text
+        for old, new in replacements.items():
+            if old in updated_text:
+                updated_text = updated_text.replace(old, new)
+        if updated_text == full_text or not paragraph.runs:
+            continue
+        paragraph.runs[0].text = updated_text
+        for run in paragraph.runs[1:]:
+            run.text = ""
+
+
+def _iter_docx_table_paragraphs(table):
+    for row in table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                yield paragraph
+            for nested in cell.tables:
+                yield from _iter_docx_table_paragraphs(nested)
+
+
+def _iter_docx_paragraphs(doc):
+    for paragraph in doc.paragraphs:
+        yield paragraph
+    for table in doc.tables:
+        yield from _iter_docx_table_paragraphs(table)
+    for section in doc.sections:
+        for paragraph in section.header.paragraphs:
+            yield paragraph
+        for table in section.header.tables:
+            yield from _iter_docx_table_paragraphs(table)
+        for paragraph in section.footer.paragraphs:
+            yield paragraph
+        for table in section.footer.tables:
+            yield from _iter_docx_table_paragraphs(table)
 
 
 def _replace_text_in_docx_element(element, old: str, new: str):
@@ -519,6 +635,20 @@ def _copy_row_style(ws, source_row: int, target_row: int, max_col: int = 5):
         target.protection = copy(source.protection)
 
 
+def _multiline_row_height(base_height: float | int | None, text: str) -> float:
+    base = float(base_height) if base_height else 15.0
+    line_count = max(1, len(str(text or "").splitlines()))
+    return base if line_count <= 1 else max(base, base * line_count)
+
+
+def _set_xls_multiline_row_height(ws, source_sheet, row_idx: int, text: str, reference_row_idx: int) -> None:
+    row = ws.row(row_idx)
+    source_info = source_sheet.rowinfo_map.get(reference_row_idx)
+    base_height = source_info.height if source_info and source_info.height else 255
+    row.height_mismatch = True
+    row.height = int(_multiline_row_height(base_height, text))
+
+
 def _render_idc_access_xlsx(template_data: bytes, field_values: dict) -> bytes:
     import openpyxl
 
@@ -540,6 +670,72 @@ def _render_idc_access_xlsx(template_data: bytes, field_values: dict) -> bytes:
         ws.cell(row, 3).value = person["name"]
         ws.cell(row, 4).value = person["position"]
         ws.cell(row, 5).value = person["contact"]
+
+    output = io.BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def _find_delivery_confirmation_footer_row(ws) -> int:
+    for row in range(1, ws.max_row + 1):
+        for col in range(1, min(ws.max_column, 8) + 1):
+            value = ws.cell(row, col).value
+            if isinstance(value, str) and "납품 / 인수 일" in value:
+                return row
+    return 32
+
+
+def _render_delivery_confirmation_xlsx(template_data: bytes, field_values: dict) -> bytes:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(template_data))
+    ws = wb[wb.sheetnames[0]]
+
+    purchase_items = _extract_purchase_items_for_delivery(field_values)
+    serial_numbers = [serial for serial in _extract_serial_numbers(field_values) if serial]
+    top_date = str(field_values.get("입고일자", "") or "").replace("/", "-")
+    footer_date = str(field_values.get("입고일자_한글여백", "") or "")
+    if not footer_date:
+        parts = _split_date_parts(field_values.get("입고일자"))
+        if parts:
+            year, month, day = parts
+            footer_date = f"{year}년   {int(month)}월    {int(day)}일"
+
+    item_start_row = 15
+    footer_row = _find_delivery_confirmation_footer_row(ws)
+    template_row = max(item_start_row, footer_row - 1)
+    available_rows = max(footer_row - item_start_row, 1)
+    row_count = max(len(purchase_items), available_rows)
+
+    if len(purchase_items) > available_rows:
+        extra_rows = len(purchase_items) - available_rows
+        ws.insert_rows(footer_row, extra_rows)
+        for offset in range(extra_rows):
+            _copy_xlsx_row(ws, template_row, footer_row + offset, ws.max_column)
+        footer_row += extra_rows
+        row_count = len(purchase_items)
+
+    ws["C7"] = top_date
+    ws["C11"] = str(field_values.get("발주명", "") or "")
+
+    for row in range(item_start_row, item_start_row + row_count):
+        ws.cell(row, 2).value = row - item_start_row + 1
+        ws.cell(row, 3).value = ""
+        ws.cell(row, 4).value = ""
+        ws.cell(row, 5).value = ""
+
+    for index, item in enumerate(purchase_items):
+        row = item_start_row + index
+        ws.cell(row, 2).value = index + 1
+        ws.cell(row, 3).value = item["name"]
+        ws.cell(row, 4).value = "\n".join(serial_numbers) if index == 0 else ""
+        ws.cell(row, 5).value = item["quantity"]
+
+    serial_text = "\n".join(serial_numbers)
+    base_height = ws.row_dimensions[item_start_row].height or ws.row_dimensions[template_row].height
+    ws.row_dimensions[item_start_row].height = _multiline_row_height(base_height, serial_text)
+
+    ws.cell(footer_row, 5).value = footer_date
 
     output = io.BytesIO()
     wb.save(output)
@@ -639,6 +835,7 @@ async def extract_purchase_order(
     return BundlePurchaseOrderExtractResponse(
         filename=filename,
         field_values=field_values,
+        purchase_items=parsed.get("purchase_items", []),
         extracted_keys=extracted_keys,
         inferred_keys=inferred_keys,
         missing_keys=missing_keys,
@@ -691,6 +888,8 @@ async def generate_bundle(
                     rendered = _render_idc_access_xlsx(template_data, field_values)
                 elif item.display_name == "납품확인서" and tpl.file_type == "xls":
                     rendered = _render_delivery_confirmation_xls(template_data, field_values)
+                elif item.display_name == "납품확인서" and tpl.file_type == "xlsx":
+                    rendered = _render_delivery_confirmation_xlsx(template_data, field_values)
                 elif item.display_name == "CMDB" and tpl.file_type == "xlsm":
                     rendered = _render_cmdb_xlsm(template_data, field_values)
                 elif tpl.file_type == "docx":

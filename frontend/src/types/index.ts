@@ -144,6 +144,13 @@ export interface TemplateBundle {
 export interface BundlePurchaseOrderExtractResult {
   filename: string;
   field_values: Record<string, string>;
+  purchase_items: Array<{
+    name: string;
+    quantity: string;
+    unit: string;
+    manufacturer: string;
+    delivery_place: string;
+  }>;
   extracted_keys: string[];
   inferred_keys: string[];
   missing_keys: string[];

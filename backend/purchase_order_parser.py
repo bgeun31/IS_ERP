@@ -85,6 +85,34 @@ def _extract_item_blocks(lines: list[str]) -> list[dict[str, str]]:
     return blocks
 
 
+def _extract_purchase_items(item_names: list[str], item_blocks: list[dict[str, str]]) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    item_count = max(len(item_names), len(item_blocks))
+
+    for index in range(item_count):
+        item_name = item_names[index].strip() if index < len(item_names) else ""
+        block = item_blocks[index] if index < len(item_blocks) else {}
+        quantity = str(block.get("quantity", "") or "").strip()
+        unit = str(block.get("unit", "") or "").strip()
+        manufacturer = str(block.get("manufacturer", "") or "").strip()
+        delivery_place = str(block.get("delivery_place", "") or "").strip()
+
+        if not any([item_name, quantity, unit, manufacturer, delivery_place]):
+            continue
+
+        items.append(
+            {
+                "name": item_name,
+                "quantity": quantity,
+                "unit": unit,
+                "manufacturer": manufacturer,
+                "delivery_place": delivery_place,
+            }
+        )
+
+    return items
+
+
 def _extract_purchase_order_name(lines: list[str]) -> str | None:
     for idx, line in enumerate(lines):
         if re.fullmatch(r"PO-\d{8}-\d{4}", line):
@@ -173,6 +201,7 @@ def parse_purchase_order_pdf(data: bytes) -> dict:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     item_names = _extract_item_names(lines)
     item_blocks = _extract_item_blocks(lines)
+    purchase_items = _extract_purchase_items(item_names, item_blocks)
     first_item_values = _extract_first_item_values(lines)
     maintenance_years = _extract_maintenance_years(item_names)
     maintenance_quantity = _extract_maintenance_quantity(item_names, item_blocks)
@@ -237,6 +266,7 @@ def parse_purchase_order_pdf(data: bytes) -> dict:
 
     return {
         "field_values": field_values,
+        "purchase_items": purchase_items,
         "extracted_keys": extracted_keys,
         "inferred_keys": inferred_keys,
         "warnings": warnings,

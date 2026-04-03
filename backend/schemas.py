@@ -192,6 +192,7 @@ class TemplateBundleResponse(BaseModel):
 class BundlePurchaseOrderExtractResponse(BaseModel):
     filename: str
     field_values: dict
+    purchase_items: list = []
     extracted_keys: List[str] = []
     inferred_keys: List[str] = []
     missing_keys: List[str] = []

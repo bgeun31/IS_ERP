@@ -30,6 +30,14 @@ type SerialEntry = {
   value: string;
 };
 
+type PurchaseItem = {
+  name: string;
+  quantity: string;
+  unit: string;
+  manufacturer: string;
+  delivery_place: string;
+};
+
 export default function InfraSecurityBundlePage() {
   const [bundle, setBundle] = useState<TemplateBundle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +48,7 @@ export default function InfraSecurityBundlePage() {
   const [extractResult, setExtractResult] = useState<BundlePurchaseOrderExtractResult | null>(null);
   const [autoFilledKeys, setAutoFilledKeys] = useState<Set<string>>(new Set());
   const [serialEntries, setSerialEntries] = useState<SerialEntry[]>([createEmptySerialEntry(1)]);
+  const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>([]);
   const [accessPeople, setAccessPeople] = useState<AccessPerson[]>([createEmptyAccessPerson(1)]);
   const [favoriteUsers, setFavoriteUsers] = useState<UserDirectoryEntry[]>([]);
   const [selectedFavoriteUserId, setSelectedFavoriteUserId] = useState('');
@@ -144,6 +153,7 @@ export default function InfraSecurityBundlePage() {
       });
 
       setAutoFilledKeys(nextAutoFilled);
+      setPurchaseItems(res.data.purchase_items || []);
       setExtractResult(res.data);
     } catch (e: any) {
       setExtractError(e.response?.data?.detail || '발주서 추출 중 오류가 발생했습니다.');
@@ -195,7 +205,7 @@ export default function InfraSecurityBundlePage() {
 
     try {
       const formData = new FormData();
-      formData.append('field_values', JSON.stringify(buildSubmissionFieldValues(fieldValues, accessPeople, serialEntries)));
+      formData.append('field_values', JSON.stringify(buildSubmissionFieldValues(fieldValues, accessPeople, serialEntries, purchaseItems)));
       formData.append('selected_items', JSON.stringify([...selectedItems]));
 
       const res = await generateBundle(bundle.id, formData);
@@ -229,6 +239,7 @@ export default function InfraSecurityBundlePage() {
     setExtractResult(null);
     setAutoFilledKeys(new Set());
     setSerialEntries([createEmptySerialEntry(1)]);
+    setPurchaseItems([]);
     setAccessPeople([createEmptyAccessPerson(1)]);
     setSelectedItems(new Set(bundle.items.map(it => it.id)));
     setSuccess(false);
@@ -901,7 +912,12 @@ function nextAccessPersonId(people: AccessPerson[]): number {
   return people.reduce((maxId, person) => Math.max(maxId, person.id), 0) + 1;
 }
 
-function buildSubmissionFieldValues(fieldValues: Record<string, string>, accessPeople: AccessPerson[], serialEntries: SerialEntry[]) {
+function buildSubmissionFieldValues(
+  fieldValues: Record<string, string>,
+  accessPeople: AccessPerson[],
+  serialEntries: SerialEntry[],
+  purchaseItems: PurchaseItem[],
+) {
   const nextValues: Record<string, unknown> = { ...fieldValues };
   const serialValues = serialEntries.map(entry => entry.value.trim());
   nextValues.__serial_numbers = serialValues;
@@ -924,7 +940,41 @@ function buildSubmissionFieldValues(fieldValues: Record<string, string>, accessP
     position,
     contact,
   }));
+  nextValues.__purchase_items = purchaseItems.length > 0
+    ? purchaseItems.map(item => ({ ...item }))
+    : buildFallbackPurchaseItems(fieldValues);
   return nextValues;
+}
+
+function buildFallbackPurchaseItems(fieldValues: Record<string, string>): PurchaseItem[] {
+  const items: PurchaseItem[] = [];
+  const modelName = (fieldValues['모델명'] || '').trim();
+  const quantity = (fieldValues['수량'] || '').trim();
+  const maintenanceQuantity = (fieldValues['유지보수수량'] || '').trim();
+  const manufacturer = (fieldValues['제조사'] || '').trim();
+  const deliveryPlace = (fieldValues['납품장소'] || '').trim();
+
+  if (modelName || quantity) {
+    items.push({
+      name: modelName,
+      quantity,
+      unit: 'EA',
+      manufacturer,
+      delivery_place: deliveryPlace,
+    });
+  }
+
+  if (maintenanceQuantity) {
+    items.push({
+      name: `${modelName} 유지보수`.trim(),
+      quantity: maintenanceQuantity,
+      unit: 'EA',
+      manufacturer,
+      delivery_place: deliveryPlace,
+    });
+  }
+
+  return items;
 }
 
 function getAccessPlaceholder(key: string, index: number): string {
