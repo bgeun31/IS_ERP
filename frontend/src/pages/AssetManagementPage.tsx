@@ -144,6 +144,7 @@ export default function AssetManagementPage() {
   const [uploading, setUploading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [spareSelectionMode, setSpareSelectionMode] = useState(false);
   const [selectedSpareIds, setSelectedSpareIds] = useState<number[]>([]);
   const [duplicateResolution, setDuplicateResolution] = useState<DuplicateResolutionState | null>(null);
   const [uploadResult, setUploadResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
@@ -185,6 +186,7 @@ export default function AssetManagementPage() {
     setDuplicateResolution(null);
     setUploadResult(null);
     setSyncResult(null);
+    setSpareSelectionMode(false);
     setSelectedSpareIds([]);
   }, [activeTab]);
 
@@ -472,6 +474,7 @@ export default function AssetManagementPage() {
       await Promise.all(selectedSpareIds.map((id) => deleteSpareAsset(id)));
       const selectedSet = new Set(selectedSpareIds);
       setSpareAssets((prev) => prev.filter((asset) => !selectedSet.has(asset.id)));
+      setSpareSelectionMode(false);
       setSelectedSpareIds([]);
       if (editCell?.table === 'spare' && selectedSet.has(editCell.rowId)) {
         setEditCell(null);
@@ -481,6 +484,16 @@ export default function AssetManagementPage() {
     } finally {
       setDeletingKey(null);
     }
+  };
+
+  const toggleSpareSelectionMode = () => {
+    setSpareSelectionMode((prev) => {
+      const next = !prev;
+      if (!next) {
+        setSelectedSpareIds([]);
+      }
+      return next;
+    });
   };
 
   const renderAssetTable = () => (
@@ -637,23 +650,25 @@ export default function AssetManagementPage() {
   const renderSpareTable = () => (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 260px)' }}>
-        <table style={{ minWidth: spareColWidths.reduce((sum, width) => sum + width, 104), borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
+        <table style={{ minWidth: spareColWidths.reduce((sum, width) => sum + width, spareSelectionMode ? 104 : 60), borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: 44 }} />
+            {spareSelectionMode && <col style={{ width: 44 }} />}
             <col style={{ width: 60 }} />
             {spareColWidths.map((width, index) => <col key={index} style={{ width }} />)}
           </colgroup>
           <thead>
             <tr>
+              {spareSelectionMode && (
+                <th style={{
+                  position: 'sticky', top: 0, left: 0, zIndex: 4,
+                  background: '#f7fafc', padding: '10px 8px', borderBottom: '2px solid #e2e8f0',
+                  borderRight: '1px solid #e2e8f0', textAlign: 'center',
+                }}>
+                  <input type="checkbox" checked={allVisibleSpareSelected} onChange={toggleAllVisibleSpareRows} />
+                </th>
+              )}
               <th style={{
-                position: 'sticky', top: 0, left: 0, zIndex: 4,
-                background: '#f7fafc', padding: '10px 8px', borderBottom: '2px solid #e2e8f0',
-                borderRight: '1px solid #e2e8f0', textAlign: 'center',
-              }}>
-                <input type="checkbox" checked={allVisibleSpareSelected} onChange={toggleAllVisibleSpareRows} />
-              </th>
-              <th style={{
-                position: 'sticky', top: 0, left: 44, zIndex: 3,
+                position: 'sticky', top: 0, left: spareSelectionMode ? 44 : 0, zIndex: 3,
                 background: '#f7fafc', padding: '10px 12px', borderBottom: '2px solid #e2e8f0',
                 borderRight: '2px solid #e2e8f0', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap',
               }}>
@@ -691,19 +706,21 @@ export default function AssetManagementPage() {
               const rowDeleteKey = `spare:${asset.id}`;
               return (
                 <tr key={asset.id} style={{ borderBottom: '1px solid #edf2f7' }}>
+                  {spareSelectionMode && (
+                    <td style={{
+                      position: 'sticky', left: 0, zIndex: 2,
+                      background: '#fff', padding: '8px 8px', borderRight: '1px solid #e2e8f0',
+                      textAlign: 'center',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedSpareIds.includes(asset.id)}
+                        onChange={() => toggleSpareSelection(asset.id)}
+                      />
+                    </td>
+                  )}
                   <td style={{
-                    position: 'sticky', left: 0, zIndex: 2,
-                    background: '#fff', padding: '8px 8px', borderRight: '1px solid #e2e8f0',
-                    textAlign: 'center',
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedSpareIds.includes(asset.id)}
-                      onChange={() => toggleSpareSelection(asset.id)}
-                    />
-                  </td>
-                  <td style={{
-                    position: 'sticky', left: 44, zIndex: 1,
+                    position: 'sticky', left: spareSelectionMode ? 44 : 0, zIndex: 1,
                     background: '#fff', padding: '8px 12px',
                     borderRight: '2px solid #e2e8f0',
                     fontWeight: 600, fontSize: 12, color: '#718096',
@@ -769,7 +786,7 @@ export default function AssetManagementPage() {
             })}
             {filteredSpareAssets.length === 0 && (
               <tr>
-                <td colSpan={SPARE_COLUMNS.length + 1} style={{ padding: 40, textAlign: 'center', color: '#a0aec0' }}>
+                <td colSpan={SPARE_COLUMNS.length + (spareSelectionMode ? 2 : 1)} style={{ padding: 40, textAlign: 'center', color: '#a0aec0' }}>
                   {search ? '검색 결과가 없습니다.' : '등록된 예비장비가 없습니다. 엑셀을 업로드하면 추가됩니다.'}
                 </td>
               </tr>
@@ -778,16 +795,6 @@ export default function AssetManagementPage() {
         </table>
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, padding: '14px 0', borderTop: '1px solid #edf2f7', background: '#fafcff' }}>
-        <button
-          type="button"
-          className="btn btn-danger"
-          onClick={handleDeleteSelectedSpareRows}
-          disabled={selectedSpareIds.length === 0 || deletingKey === 'spare:bulk'}
-          style={{ fontSize: 12, padding: '8px 14px' }}
-          title="선택한 예비장비 행 삭제"
-        >
-          {deletingKey === 'spare:bulk' ? '삭제 중...' : `선택 삭제${selectedSpareIds.length > 0 ? ` (${selectedSpareIds.length})` : ''}`}
-        </button>
         <button
           type="button"
           className="btn btn-secondary"
@@ -862,6 +869,29 @@ export default function AssetManagementPage() {
             >
               {uploading ? '업로드 중...' : '엑셀 업로드'}
             </button>
+            {activeTab === 'spare' && (
+              <button
+                type="button"
+                className={spareSelectionMode ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                onClick={toggleSpareSelectionMode}
+                style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                title="예비장비 선택 삭제 모드"
+              >
+                {spareSelectionMode ? '선택 삭제 종료' : '선택 삭제'}
+              </button>
+            )}
+            {activeTab === 'spare' && spareSelectionMode && (
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={handleDeleteSelectedSpareRows}
+                disabled={selectedSpareIds.length === 0 || deletingKey === 'spare:bulk'}
+                style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                title="선택한 예비장비 행 삭제"
+              >
+                {deletingKey === 'spare:bulk' ? '삭제 중...' : `선택 항목 삭제${selectedSpareIds.length > 0 ? ` (${selectedSpareIds.length})` : ''}`}
+              </button>
+            )}
             {activeTab === 'assets' && (
               <button
                 onClick={handleSync}
