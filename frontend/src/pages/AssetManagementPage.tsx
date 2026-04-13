@@ -10,6 +10,13 @@ interface ColumnDef {
   defaultWidth: number;
 }
 
+interface DuplicateResolutionState {
+  serial: string;
+  candidates: AssetItem[];
+  selectedDevice: string;
+  saving: boolean;
+}
+
 const COLUMNS: ColumnDef[] = [
   { key: 'asset_number', label: '자산번호', auto: false, defaultWidth: 110 },
   { key: 'resource_status', label: '자원상태', auto: false, defaultWidth: 90 },
@@ -42,6 +49,25 @@ const COLUMNS: ColumnDef[] = [
 
 const STORAGE_KEY = 'asset_col_widths';
 
+function normalizeSerial(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function buildDuplicateSerialMap(items: AssetItem[]): Record<string, AssetItem[]> {
+  const grouped: Record<string, AssetItem[]> = {};
+
+  items.forEach((item) => {
+    const serial = normalizeSerial(item.serial_number);
+    if (!serial) return;
+    grouped[serial] = [...(grouped[serial] ?? []), item];
+  });
+
+  return Object.fromEntries(
+    Object.entries(grouped).filter(([, entries]) => entries.length > 1)
+  );
+}
+
 function loadWidths(): number[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -63,6 +89,7 @@ export default function AssetManagementPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [duplicateResolution, setDuplicateResolution] = useState<DuplicateResolutionState | null>(null);
   const [uploadResult, setUploadResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
   const [syncResult, setSyncResult] = useState<{ synced: number; created: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -135,10 +162,29 @@ export default function AssetManagementPage() {
       (a.asset_number ?? '').toLowerCase().includes(q)
     );
   });
+  const duplicateSerialMap = buildDuplicateSerialMap(assets);
+  const duplicateSerialCount = Object.keys(duplicateSerialMap).length;
 
   const startEdit = (device: string, key: string, currentValue: string | null) => {
     setEditCell({ device, key });
     setEditValue(currentValue ?? '');
+  };
+
+  const openDuplicateResolution = (serial: string) => {
+    const candidates = duplicateSerialMap[serial];
+    if (!candidates?.length) return;
+    setEditCell(null);
+    setDuplicateResolution({
+      serial,
+      candidates,
+      selectedDevice: candidates[0].device_name,
+      saving: false,
+    });
+  };
+
+  const closeDuplicateResolution = () => {
+    if (duplicateResolution?.saving) return;
+    setDuplicateResolution(null);
   };
 
   const saveEdit = async () => {
@@ -207,6 +253,39 @@ export default function AssetManagementPage() {
     }
   };
 
+  const handleResolveDuplicate = async () => {
+    if (!duplicateResolution) return;
+
+    const devicesToClear = duplicateResolution.candidates.filter(
+      (candidate) => candidate.device_name !== duplicateResolution.selectedDevice
+    );
+
+    if (devicesToClear.length === 0) {
+      setDuplicateResolution(null);
+      return;
+    }
+
+    setDuplicateResolution((prev) => (prev ? { ...prev, saving: true } : prev));
+    try {
+      await Promise.all(
+        devicesToClear.map((candidate) =>
+          updateAsset(candidate.device_name, { serial_number: null })
+        )
+      );
+
+      const clearTargets = new Set(devicesToClear.map((candidate) => candidate.device_name));
+      setAssets((prev) =>
+        prev.map((asset) =>
+          clearTargets.has(asset.device_name) ? { ...asset, serial_number: null } : asset
+        )
+      );
+      setDuplicateResolution(null);
+    } catch {
+      alert('중복 시리얼 정리에 실패했습니다.');
+      setDuplicateResolution((prev) => (prev ? { ...prev, saving: false } : prev));
+    }
+  };
+
   return (
     <Layout title="자산관리">
       <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
@@ -260,6 +339,10 @@ export default function AssetManagementPage() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#718096' }}>
               <span style={{ display: 'inline-block', width: 10, height: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 2 }} />
               수동 입력
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#9b2c2c' }}>
+              <span style={{ display: 'inline-block', width: 10, height: 10, background: '#fed7d7', border: '1px solid #fc8181', borderRadius: 2 }} />
+              중복 시리얼 {duplicateSerialCount}건
             </span>
           </div>
         </div>
@@ -345,57 +428,80 @@ export default function AssetManagementPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((asset, idx) => (
-                  <tr key={asset.device_name} style={{ borderBottom: '1px solid #edf2f7' }}>
-                    <td style={{
-                      position: 'sticky', left: 0, zIndex: 1,
-                      background: '#fff', padding: '8px 12px',
-                      borderRight: '2px solid #e2e8f0',
-                      fontWeight: 600, fontSize: 12, color: '#718096',
-                    }}>
-                      {idx + 1}
-                    </td>
-                    {COLUMNS.map((col) => {
-                      const value = asset[col.key] as string | null;
-                      const isEditing = editCell?.device === asset.device_name && editCell?.key === col.key;
+                {filtered.map((asset, idx) => {
+                  const rowSerial = normalizeSerial(asset.serial_number);
+                  const isDuplicateRow = !!rowSerial && !!duplicateSerialMap[rowSerial];
 
-                      if (isEditing) {
+                  return (
+                    <tr key={asset.device_name} style={{ borderBottom: '1px solid #edf2f7' }}>
+                      <td style={{
+                        position: 'sticky', left: 0, zIndex: 1,
+                        background: isDuplicateRow ? '#fff5f5' : '#fff', padding: '8px 12px',
+                        borderRight: '2px solid #e2e8f0',
+                        fontWeight: 600, fontSize: 12, color: '#718096',
+                        boxShadow: isDuplicateRow ? 'inset 0 0 0 1px #fc8181' : undefined,
+                      }}>
+                        {idx + 1}
+                      </td>
+                      {COLUMNS.map((col) => {
+                        const value = asset[col.key] as string | null;
+                        const isEditing = editCell?.device === asset.device_name && editCell?.key === col.key;
+                        const serial = col.key === 'serial_number' ? normalizeSerial(value) : null;
+                        const isDuplicateSerial = !!serial && !!duplicateSerialMap[serial];
+
+                        if (isEditing) {
+                          return (
+                            <td key={col.key} style={{ padding: '4px 6px', background: '#fffff0', overflow: 'hidden' }}>
+                              <input
+                                ref={inputRef}
+                                className="form-input"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                onBlur={saveEdit}
+                                disabled={saving}
+                                style={{ width: '100%', padding: '4px 8px', fontSize: 13, boxSizing: 'border-box' }}
+                              />
+                            </td>
+                          );
+                        }
+
                         return (
-                          <td key={col.key} style={{ padding: '4px 6px', background: '#fffff0', overflow: 'hidden' }}>
-                            <input
-                              ref={inputRef}
-                              className="form-input"
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onKeyDown={handleKeyDown}
-                              onBlur={saveEdit}
-                              disabled={saving}
-                              style={{ width: '100%', padding: '4px 8px', fontSize: 13, boxSizing: 'border-box' }}
-                            />
+                          <td
+                            key={col.key}
+                            onClick={() => {
+                              if (isDuplicateSerial && serial) {
+                                openDuplicateResolution(serial);
+                                return;
+                              }
+                              startEdit(asset.device_name, col.key, value);
+                            }}
+                            style={{
+                              padding: '8px 12px', cursor: 'pointer',
+                              whiteSpace: 'nowrap', overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              background: isDuplicateRow ? '#fff5f5' : col.auto ? '#f7fbff' : undefined,
+                              boxShadow: isDuplicateRow ? 'inset 0 0 0 1px #fc8181' : undefined,
+                              fontFamily: col.key === 'ip' || col.key === 'serial_number' ? 'monospace' : 'inherit',
+                              fontSize: col.key === 'os' ? 12 : 13,
+                              color: isDuplicateRow ? '#9b2c2c' : undefined,
+                              fontWeight: isDuplicateSerial ? 700 : undefined,
+                            }}
+                            title={
+                              isDuplicateSerial && serial
+                                ? `${serial} (중복 시리얼: 클릭하여 정리)`
+                                : value
+                                  ? `${value} (클릭하여 편집)`
+                                  : '클릭하여 편집'
+                            }
+                          >
+                            {value ?? <span style={{ color: '#cbd5e0' }}>-</span>}
                           </td>
                         );
-                      }
-
-                      return (
-                        <td
-                          key={col.key}
-                          onClick={() => startEdit(asset.device_name, col.key, value)}
-                          style={{
-                            padding: '8px 12px', cursor: 'pointer',
-                            whiteSpace: 'nowrap', overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            background: col.auto ? '#f7fbff' : undefined,
-                            fontFamily: col.key === 'ip' || col.key === 'serial_number' ? 'monospace' : 'inherit',
-                            fontSize: col.key === 'os' ? 12 : 13,
-                          }}
-                          title={value ? `${value} (클릭하여 편집)` : '클릭하여 편집'}
-                        >
-                          {value ?? <span style={{ color: '#cbd5e0' }}>-</span>}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                      })}
+                    </tr>
+                  );
+                })}
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={COLUMNS.length + 1} style={{ padding: 40, textAlign: 'center', color: '#a0aec0' }}>
@@ -405,6 +511,63 @@ export default function AssetManagementPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {duplicateResolution && (
+        <div className="modal-overlay" onClick={closeDuplicateResolution}>
+          <div className="modal" style={{ width: 560, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">중복 시리얼 정리</div>
+            <p style={{ fontSize: 13, color: '#4a5568', marginBottom: 16 }}>
+              시리얼 <strong style={{ fontFamily: 'monospace' }}>{duplicateResolution.serial}</strong> 이(가) 여러 장비에 등록되어 있습니다.
+              유지할 장비를 선택하면 나머지 장비의 시리얼 값은 비워집니다.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 320, overflowY: 'auto' }}>
+              {duplicateResolution.candidates.map((candidate) => (
+                <label
+                  key={candidate.device_name}
+                  style={{
+                    display: 'block',
+                    border: candidate.device_name === duplicateResolution.selectedDevice ? '1px solid #3182ce' : '1px solid #e2e8f0',
+                    borderRadius: 10,
+                    padding: 14,
+                    background: candidate.device_name === duplicateResolution.selectedDevice ? '#ebf8ff' : '#fff',
+                    cursor: duplicateResolution.saving ? 'default' : 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                    <input
+                      type="radio"
+                      name="duplicate-serial-resolution"
+                      checked={candidate.device_name === duplicateResolution.selectedDevice}
+                      onChange={() => setDuplicateResolution((prev) => (prev ? { ...prev, selectedDevice: candidate.device_name } : prev))}
+                      disabled={duplicateResolution.saving}
+                      style={{ marginTop: 3 }}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a202c', wordBreak: 'break-all' }}>
+                        {candidate.device_name}
+                      </div>
+                      <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 12, color: '#718096' }}>
+                        <span>호스트명: {candidate.hostname || '-'}</span>
+                        <span>IP: {candidate.ip || '-'}</span>
+                        <span>모델: {candidate.model || '-'}</span>
+                        <span>자산번호: {candidate.asset_number || '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={closeDuplicateResolution} disabled={duplicateResolution.saving}>
+                취소
+              </button>
+              <button type="button" className="btn btn-danger" onClick={handleResolveDuplicate} disabled={duplicateResolution.saving}>
+                {duplicateResolution.saving ? '정리 중...' : '선택 항목만 유지'}
+              </button>
+            </div>
           </div>
         </div>
       )}
