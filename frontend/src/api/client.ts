@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type {
   AssetItem,
+  DeviceAnomalyResponse,
   BundlePurchaseOrderExtractResult,
   DeviceListItem,
   DeviceSnapshot,
@@ -47,6 +48,8 @@ export const getMe = () => api.get<User>('/auth/me');
 // Devices
 export const getDevices = (year?: number, month?: number) =>
   api.get<DeviceListItem[]>('/devices', { params: { year, month } });
+export const getDeviceAnomalies = (year?: number, month?: number) =>
+  api.get<DeviceAnomalyResponse>('/devices/anomalies', { params: { year, month } });
 export const getDevice = (name: string) =>
   api.get<{ device_name: string; snapshots: DeviceSnapshot[] }>(`/devices/${encodeURIComponent(name)}`);
 

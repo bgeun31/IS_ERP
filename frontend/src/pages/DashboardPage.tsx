@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDevices } from '../api/client';
+import { getDeviceAnomalies, getDevices } from '../api/client';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import type { DeviceListItem } from '../types';
@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [anomalyCount, setAnomalyCount] = useState(0);
   const [filterYear, setFilterYear] = useState(now.getFullYear());
   const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
   const [filterSystemTypes, setFilterSystemTypes] = useState<Set<string>>(new Set());
@@ -55,6 +56,10 @@ export default function DashboardPage() {
       .then((res) => setDevices(res.data))
       .catch(() => setError('장비 목록을 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
+
+    getDeviceAnomalies(filterYear, filterMonth)
+      .then((res) => setAnomalyCount(res.data.affected_device_count))
+      .catch(() => setAnomalyCount(0));
   }, [filterYear, filterMonth]);
 
   const years = Array.from({ length: 10 }, (_, i) => now.getFullYear() - 2 + i);
@@ -84,16 +89,6 @@ export default function DashboardPage() {
     return true;
   });
 
-  const issueCount = devices.filter((d) => {
-    const s = d.latest_snapshot;
-    if (!s) return false;
-    return (
-      s.temp_status === '비정상' ||
-      (s.fan_operational !== null && s.fan_total !== null && s.fan_operational < s.fan_total) ||
-      (s.cpu !== null && s.cpu >= 90)
-    );
-  }).length;
-
   return (
     <Layout title="대시보드">
       {/* Stats */}
@@ -103,14 +98,14 @@ export default function DashboardPage() {
           <div className="stat-value">{devices.length}</div>
           <div className="stat-sub">등록된 스위치</div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => navigate('/anomalies')}>
           <div className="stat-label">이상 감지</div>
-          <div className="stat-value" style={{ color: issueCount > 0 ? '#e53e3e' : '#38a169' }}>{issueCount}</div>
-          <div className="stat-sub">점검 필요 장비</div>
+          <div className="stat-value" style={{ color: anomalyCount > 0 ? '#e53e3e' : '#38a169' }}>{anomalyCount}</div>
+          <div className="stat-sub">클릭하여 상세 확인</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">정상 장비</div>
-          <div className="stat-value" style={{ color: '#38a169' }}>{devices.length - issueCount}</div>
+          <div className="stat-value" style={{ color: '#38a169' }}>{Math.max(devices.length - anomalyCount, 0)}</div>
           <div className="stat-sub">정상 동작 중</div>
         </div>
       </div>

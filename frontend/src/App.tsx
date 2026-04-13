@@ -6,6 +6,7 @@ import DocumentCreatePage from './pages/DocumentCreatePage';
 import DocumentHistoryPage from './pages/DocumentHistoryPage';
 import DocumentTemplatePage from './pages/DocumentTemplatePage';
 import InfraSecurityBundlePage from './pages/InfraSecurityBundlePage';
+import AnomalyDetectionPage from './pages/AnomalyDetectionPage';
 import AssetManagementPage from './pages/AssetManagementPage';
 import LoginPage from './pages/LoginPage';
 import LogListPage from './pages/LogListPage';
@@ -28,6 +29,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
       <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+      <Route path="/anomalies" element={<ProtectedRoute><AnomalyDetectionPage /></ProtectedRoute>} />
       <Route path="/assets" element={<ProtectedRoute><AssetManagementPage /></ProtectedRoute>} />
       <Route path="/devices/:name" element={<ProtectedRoute><DeviceDetailPage /></ProtectedRoute>} />
       <Route path="/upload" element={<ProtectedRoute><LogUploadPage /></ProtectedRoute>} />

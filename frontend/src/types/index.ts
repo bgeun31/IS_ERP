@@ -68,6 +68,30 @@ export interface DeviceListItem {
   snapshot_count: number;
 }
 
+export interface DeviceAnomalyEntry {
+  timestamp: string;
+  level: 'Warn' | 'Erro';
+  category: string | null;
+  message: string;
+  raw_line: string;
+}
+
+export interface DeviceAnomalyItem {
+  device_name: string;
+  log_year: number;
+  log_month: number;
+  original_filename: string;
+  anomaly_count: number;
+  anomalies: DeviceAnomalyEntry[];
+}
+
+export interface DeviceAnomalyResponse {
+  scanned_device_count: number;
+  affected_device_count: number;
+  total_anomaly_count: number;
+  items: DeviceAnomalyItem[];
+}
+
 export interface LogFile {
   id: number;
   device_name: string;

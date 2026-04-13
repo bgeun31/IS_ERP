@@ -1,3 +1,4 @@
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,9 +7,14 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
+import minio_client
 from models import DeviceSnapshot, LogFile, User
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
+
+ANOMALY_PATTERN = re.compile(
+    r"^(?P<timestamp>\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+<(?P<level>Warn|Erro)(?::(?P<category>[^>]+))?>\s*(?P<message>.*)$"
+)
 
 
 def _snapshot_to_dict(snap: DeviceSnapshot) -> dict:
@@ -48,6 +54,49 @@ def _snapshot_to_dict(snap: DeviceSnapshot) -> dict:
         "log_month": lf.log_month if lf else None,
         "original_filename": lf.original_filename if lf else None,
     }
+
+
+def _extract_log_sections(content: str, commands: list[str]) -> str:
+    lines = content.splitlines()
+    result: list[str] = []
+    capturing = False
+
+    for line in lines:
+        if "# " in line:
+            cmd_part = line.split("#", 1)[1].strip().lower()
+            is_target = any(command in cmd_part for command in commands)
+            if is_target:
+                capturing = True
+                result.append(line)
+                continue
+            if capturing and cmd_part:
+                capturing = False
+        if capturing:
+            result.append(line)
+
+    return "\n".join(result).strip()
+
+
+def _collect_log_anomalies(content: str) -> list[dict]:
+    section = _extract_log_sections(content, ["show log", "show logs"])
+    if not section:
+        return []
+
+    anomalies: list[dict] = []
+    for line in section.splitlines():
+        match = ANOMALY_PATTERN.match(line.strip())
+        if not match:
+            continue
+        anomalies.append(
+            {
+                "timestamp": match.group("timestamp"),
+                "level": match.group("level"),
+                "category": match.group("category"),
+                "message": match.group("message"),
+                "raw_line": line.strip(),
+            }
+        )
+    return anomalies
 
 
 @router.get("")
@@ -106,6 +155,74 @@ def list_devices(
             }
         )
     return result
+
+
+@router.get("/anomalies")
+def list_device_anomalies(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """시스템 로그(show log/show logs)에서 Warn/Erro 패턴을 집계합니다."""
+    if year and month:
+        target_logs = (
+            db.query(LogFile)
+            .filter(LogFile.log_year == year, LogFile.log_month == month)
+            .order_by(LogFile.device_name.asc())
+            .all()
+        )
+    else:
+        subq = (
+            db.query(
+                LogFile.device_name,
+                func.max(LogFile.log_year * 100 + LogFile.log_month).label("latest_ym"),
+            )
+            .group_by(LogFile.device_name)
+            .subquery()
+        )
+        target_logs = (
+            db.query(LogFile)
+            .join(
+                subq,
+                (LogFile.device_name == subq.c.device_name)
+                & ((LogFile.log_year * 100 + LogFile.log_month) == subq.c.latest_ym),
+            )
+            .order_by(LogFile.device_name.asc())
+            .all()
+        )
+
+    items: list[dict] = []
+    total_anomalies = 0
+
+    for log_file in target_logs:
+        raw = minio_client.download_file(log_file.minio_object_key)
+        if raw is None:
+            continue
+        anomalies = _collect_log_anomalies(raw.decode("utf-8", errors="replace"))
+        if not anomalies:
+            continue
+
+        total_anomalies += len(anomalies)
+        items.append(
+            {
+                "device_name": log_file.device_name,
+                "log_year": log_file.log_year,
+                "log_month": log_file.log_month,
+                "original_filename": log_file.original_filename,
+                "anomaly_count": len(anomalies),
+                "anomalies": anomalies,
+            }
+        )
+
+    items.sort(key=lambda item: (-item["anomaly_count"], item["device_name"]))
+
+    return {
+        "scanned_device_count": len(target_logs),
+        "affected_device_count": len(items),
+        "total_anomaly_count": total_anomalies,
+        "items": items,
+    }
 
 
 @router.get("/{device_name}")
