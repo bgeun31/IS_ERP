@@ -10,6 +10,7 @@ export default function DocumentTemplatePage() {
   // 업로드 모달
   const [showUpload, setShowUpload] = useState(false);
   const [uploadName, setUploadName] = useState('');
+  const [uploadFolder, setUploadFolder] = useState('');
   const [uploadDesc, setUploadDesc] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -20,6 +21,7 @@ export default function DocumentTemplatePage() {
   const [editTarget, setEditTarget] = useState<DocumentTemplate | null>(null);
   const [editVars, setEditVars] = useState<DocumentVariable[]>([]);
   const [editName, setEditName] = useState('');
+  const [editFolder, setEditFolder] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [saving, setSaving] = useState(false);
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -47,10 +49,12 @@ export default function DocumentTemplatePage() {
       const fd = new FormData();
       fd.append('file', uploadFile);
       fd.append('name', uploadName.trim());
+      fd.append('folder_name', uploadFolder.trim());
       fd.append('description', uploadDesc.trim());
       await createTemplate(fd);
       setShowUpload(false);
       setUploadName('');
+      setUploadFolder('');
       setUploadDesc('');
       setUploadFile(null);
       load();
@@ -106,6 +110,7 @@ export default function DocumentTemplatePage() {
   const openEdit = (t: DocumentTemplate) => {
     setEditTarget(t);
     setEditName(t.name);
+    setEditFolder(t.folder_name || '');
     setEditDesc(t.description || '');
     setEditVars(t.variables.map(v => ({ ...v })));
   };
@@ -116,6 +121,7 @@ export default function DocumentTemplatePage() {
     try {
       await updateTemplate(editTarget.id, {
         name: editName.trim(),
+        folder_name: editFolder.trim(),
         description: editDesc.trim(),
         variables: editVars,
       });
@@ -131,6 +137,7 @@ export default function DocumentTemplatePage() {
     if (!q) return true;
     return (
       t.name.toLowerCase().includes(q) ||
+      (t.folder_name || '').toLowerCase().includes(q) ||
       (t.description || '').toLowerCase().includes(q) ||
       t.original_filename.toLowerCase().includes(q) ||
       t.file_type.toLowerCase().includes(q) ||
@@ -144,6 +151,12 @@ export default function DocumentTemplatePage() {
       ? `${(bytes / 1024).toFixed(1)} KB`
       : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   };
+
+  const sortedTemplates = [...filteredTemplates].sort((a, b) => {
+    const folderA = a.folder_name || '미분류';
+    const folderB = b.folder_name || '미분류';
+    return folderA.localeCompare(folderB, 'ko') || a.name.localeCompare(b.name, 'ko');
+  });
 
   return (
     <Layout title="템플릿 관리">
@@ -161,7 +174,7 @@ export default function DocumentTemplatePage() {
           />
           <input
             className="search-input"
-            placeholder="템플릿명, 파일명, 등록자 검색..."
+            placeholder="폴더, 템플릿명, 파일명, 등록자 검색..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
@@ -182,6 +195,7 @@ export default function DocumentTemplatePage() {
             <thead>
               <tr>
                 <th>템플릿명</th>
+                <th>폴더</th>
                 <th>파일 형식</th>
                 <th>파일명</th>
                 <th>변수</th>
@@ -194,13 +208,14 @@ export default function DocumentTemplatePage() {
             <tbody>
               {filteredTemplates.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: '#718096' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 40, color: '#718096' }}>
                     검색 결과가 없습니다.
                   </td>
                 </tr>
-              ) : filteredTemplates.map(t => (
+              ) : sortedTemplates.map(t => (
                 <tr key={t.id}>
                   <td><strong>{t.name}</strong>{t.description && <div className="text-muted text-sm">{t.description}</div>}</td>
+                  <td className="text-sm">{t.folder_name || <span className="text-muted">미분류</span>}</td>
                   <td>
                     <span style={{
                       padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600,
@@ -258,6 +273,10 @@ export default function DocumentTemplatePage() {
               <input className="form-control" value={uploadName} onChange={e => setUploadName(e.target.value)} placeholder="예: 장비 점검 보고서" />
             </div>
             <div className="form-group">
+              <label className="form-label">폴더명</label>
+              <input className="form-control" value={uploadFolder} onChange={e => setUploadFolder(e.target.value)} placeholder="예: 인프라보안 전용 템플릿" />
+            </div>
+            <div className="form-group">
               <label className="form-label">설명</label>
               <input className="form-control" value={uploadDesc} onChange={e => setUploadDesc(e.target.value)} placeholder="선택 입력" />
             </div>
@@ -303,6 +322,10 @@ export default function DocumentTemplatePage() {
             <div className="form-group">
               <label className="form-label">템플릿명</label>
               <input className="form-control" value={editName} onChange={e => setEditName(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">폴더명</label>
+              <input className="form-control" value={editFolder} onChange={e => setEditFolder(e.target.value)} />
             </div>
             <div className="form-group">
               <label className="form-label">설명</label>

@@ -291,6 +291,11 @@ export default function InfraSecurityBundlePage() {
           <p style={{ margin: '8px 0 0', fontSize: 14, opacity: 0.85 }}>
             {bundle.description}
           </p>
+          {bundle.template_folder && (
+            <p style={{ margin: '8px 0 0', fontSize: 13, opacity: 0.75 }}>
+              기준 폴더: {bundle.template_folder}
+            </p>
+          )}
           <div style={{
             marginTop: 14,
             display: 'flex', gap: 16, fontSize: 13, opacity: 0.8,

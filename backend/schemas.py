@@ -145,6 +145,7 @@ class DocumentTemplateCreate(BaseModel):
 
 class DocumentTemplateUpdate(BaseModel):
     name: Optional[str] = None
+    folder_name: Optional[str] = None
     description: Optional[str] = None
     variables: Optional[List[DocumentVariableSchema]] = None
 
@@ -152,6 +153,7 @@ class DocumentTemplateUpdate(BaseModel):
 class DocumentTemplateResponse(BaseModel):
     id: int
     name: str
+    folder_name: Optional[str] = None
     description: Optional[str] = None
     file_type: str
     original_filename: str
@@ -179,6 +181,7 @@ class TemplateBundleItemResponse(BaseModel):
 class TemplateBundleResponse(BaseModel):
     id: int
     name: str
+    template_folder: Optional[str] = None
     description: Optional[str] = None
     variables: list = []
     items: List[TemplateBundleItemResponse] = []

@@ -226,6 +226,7 @@ def _template_to_response(t: DocumentTemplate) -> DocumentTemplateResponse:
     return DocumentTemplateResponse(
         id=t.id,
         name=t.name,
+        folder_name=t.folder_name,
         description=t.description,
         file_type=t.file_type,
         original_filename=t.original_filename,
@@ -255,6 +256,7 @@ def list_templates(
 async def create_template(
     file: UploadFile = File(...),
     name: str = Form(...),
+    folder_name: str = Form(""),
     description: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -277,6 +279,7 @@ async def create_template(
 
     template = DocumentTemplate(
         name=name,
+        folder_name=folder_name.strip() or None,
         description=description or None,
         file_type=ext,
         original_filename=filename,
@@ -363,6 +366,8 @@ def update_template(
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
     if body.name is not None:
         t.name = body.name
+    if body.folder_name is not None:
+        t.folder_name = body.folder_name.strip() or None
     if body.description is not None:
         t.description = body.description
     if body.variables is not None:

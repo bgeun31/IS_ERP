@@ -106,6 +106,7 @@ export interface DocumentVariable {
 export interface DocumentTemplate {
   id: number;
   name: string;
+  folder_name: string | null;
   description: string | null;
   file_type: 'docx' | 'xlsx' | 'xlsm' | 'xls';
   original_filename: string;
@@ -134,6 +135,7 @@ export interface TemplateBundleItem {
 export interface TemplateBundle {
   id: number;
   name: string;
+  template_folder: string | null;
   description: string | null;
   variables: BundleVariable[];
   items: TemplateBundleItem[];

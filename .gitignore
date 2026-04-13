@@ -1,7 +1,4 @@
-frontend/node_modules/
-backend/__pycache__/
 backend/routers/__pycache__/
-frontend/dist/assets/
-
-sample/
-sample2/
+backend/__pycache__/
+frontend/dist/
+frontend/node_modules/

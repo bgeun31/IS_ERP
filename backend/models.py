@@ -113,6 +113,7 @@ class DocumentTemplate(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
+    folder_name = Column(String(255), index=True)
     description = Column(String(500))
     file_type = Column(String(10), nullable=False)  # 'docx' or 'xlsx'
     original_filename = Column(String(255), nullable=False)
@@ -131,6 +132,7 @@ class TemplateBundle(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, unique=True)
+    template_folder = Column(String(255), index=True)
     description = Column(String(500))
     variables = Column(JSON)  # [{"key":"..","label":"..","section":".."}]
     created_at = Column(DateTime, server_default=func.now())

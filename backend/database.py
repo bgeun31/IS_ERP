@@ -37,9 +37,15 @@ def run_schema_migrations() -> None:
         "phone_number": "ALTER TABLE users ADD COLUMN phone_number VARCHAR(50) NULL",
         "position": "ALTER TABLE users ADD COLUMN position VARCHAR(100) NULL",
     }
+    template_columns = {
+        "folder_name": "ALTER TABLE document_templates ADD COLUMN folder_name VARCHAR(255) NULL",
+    }
+    bundle_columns = {
+        "template_folder": "ALTER TABLE template_bundles ADD COLUMN template_folder VARCHAR(255) NULL",
+    }
 
     with engine.begin() as conn:
-        existing = {
+        existing_user_columns = {
             row[0]
             for row in conn.execute(
                 text(
@@ -54,7 +60,45 @@ def run_schema_migrations() -> None:
         }
 
         for column_name, ddl in user_columns.items():
-            if column_name in existing:
+            if column_name in existing_user_columns:
+                continue
+            conn.execute(text(ddl))
+
+        existing_template_columns = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT COLUMN_NAME
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = 'document_templates'
+                    """
+                ),
+                {"schema": settings.DB_NAME},
+            )
+        }
+
+        for column_name, ddl in template_columns.items():
+            if column_name in existing_template_columns:
+                continue
+            conn.execute(text(ddl))
+
+        existing_bundle_columns = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT COLUMN_NAME
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = 'template_bundles'
+                    """
+                ),
+                {"schema": settings.DB_NAME},
+            )
+        }
+
+        for column_name, ddl in bundle_columns.items():
+            if column_name in existing_bundle_columns:
                 continue
             conn.execute(text(ddl))
 

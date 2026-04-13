@@ -552,6 +552,7 @@ def seed_infra_security_bundle(db_session):
         db_session.add(bundle)
         db_session.flush()
 
+    bundle.template_folder = BUNDLE_NAME
     bundle.description = "발주서 기반으로 인프라보안 장비 관련 문서를 일괄 생성하는 전용 템플릿입니다."
     bundle.variables = BUNDLE_VARIABLES
 
@@ -575,6 +576,9 @@ def seed_infra_security_bundle(db_session):
         if not tpl:
             print(f"[Seed]   템플릿 없음, 연결 스킵: {tdef['name']}")
             continue
+
+        if tpl.folder_name != BUNDLE_NAME:
+            tpl.folder_name = BUNDLE_NAME
 
         item = existing_items.get(tdef["display_name"])
         if not item:

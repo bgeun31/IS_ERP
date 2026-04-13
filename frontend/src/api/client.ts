@@ -81,7 +81,7 @@ export const deleteUser = (id: number) => api.delete(`/users/${id}`);
 export const getTemplates = () => api.get<DocumentTemplate[]>('/documents/templates');
 export const createTemplate = (formData: FormData) =>
   api.post<DocumentTemplate>('/documents/templates', formData);
-export const updateTemplate = (id: number, data: { name?: string; description?: string; variables?: DocumentVariable[] }) =>
+export const updateTemplate = (id: number, data: { name?: string; folder_name?: string; description?: string; variables?: DocumentVariable[] }) =>
   api.put<DocumentTemplate>(`/documents/templates/${id}`, data);
 export const deleteTemplate = (id: number) => api.delete(`/documents/templates/${id}`);
 export const replaceTemplateFile = (id: number, formData: FormData) =>

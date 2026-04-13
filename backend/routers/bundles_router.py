@@ -123,9 +123,11 @@ def _resolve_output_name(item: TemplateBundleItem, field_values: dict) -> str:
 
 
 def _bundle_to_response(b: TemplateBundle) -> TemplateBundleResponse:
+    items = _ordered_bundle_items(b)
     return TemplateBundleResponse(
         id=b.id,
         name=b.name,
+        template_folder=b.template_folder,
         description=b.description,
         variables=b.variables or [],
         items=[
@@ -137,11 +139,92 @@ def _bundle_to_response(b: TemplateBundle) -> TemplateBundleResponse:
                 file_type=item.template.file_type if item.template else None,
                 order=item.order,
             )
-            for item in b.items
+            for item in items
         ],
         created_at=b.created_at,
         created_by_username=b.creator.username if b.creator else None,
     )
+
+
+def _display_name_from_template(template: DocumentTemplate) -> str:
+    name = (template.name or "").strip()
+    match = re.match(r"^\[[^\]]+\]\s*(.+)$", name)
+    return match.group(1).strip() if match else name
+
+
+def _bundle_item_defaults(bundle: TemplateBundle) -> dict[str, tuple[str, int]]:
+    if bundle.name != "인프라보안 전용 템플릿":
+        return {}
+
+    from seeds.infra_security import TEMPLATE_DEFS, XLSX_FROM_SCRATCH
+
+    defaults: dict[str, tuple[str, int]] = {}
+    for index, definition in enumerate(TEMPLATE_DEFS + XLSX_FROM_SCRATCH):
+        defaults[definition["display_name"]] = (
+            definition.get("output_pattern", definition["display_name"]),
+            index,
+        )
+    return defaults
+
+
+def _ordered_bundle_items(bundle: TemplateBundle) -> list[TemplateBundleItem]:
+    return sorted(bundle.items, key=lambda item: (item.order, item.display_name, item.id))
+
+
+def _sync_bundle_items_from_folder(db: Session, bundle: TemplateBundle) -> TemplateBundle:
+    folder_name = (bundle.template_folder or "").strip()
+    if not folder_name:
+        return bundle
+
+    templates = (
+        db.query(DocumentTemplate)
+        .filter(DocumentTemplate.folder_name == folder_name)
+        .order_by(DocumentTemplate.name.asc(), DocumentTemplate.created_at.asc())
+        .all()
+    )
+    item_defaults = _bundle_item_defaults(bundle)
+    existing_items = {item.display_name: item for item in bundle.items}
+    seen_display_names: set[str] = set()
+    changed = False
+
+    def sort_key(template: DocumentTemplate) -> tuple[int, str]:
+        display_name = _display_name_from_template(template)
+        return item_defaults.get(display_name, ("", 9999))[1], display_name
+
+    for template in sorted(templates, key=sort_key):
+        display_name = _display_name_from_template(template)
+        if not display_name or display_name in seen_display_names:
+            continue
+        seen_display_names.add(display_name)
+
+        output_pattern, default_order = item_defaults.get(display_name, (display_name, len(seen_display_names) - 1))
+        item = existing_items.get(display_name)
+        if not item:
+            item = TemplateBundleItem(bundle_id=bundle.id, display_name=display_name)
+            db.add(item)
+            changed = True
+
+        if item.template_id != template.id:
+            item.template_id = template.id
+            changed = True
+        if item.output_name_pattern != output_pattern:
+            item.output_name_pattern = output_pattern
+            changed = True
+        if item.order != default_order:
+            item.order = default_order
+            changed = True
+
+    for display_name, item in list(existing_items.items()):
+        if display_name in seen_display_names:
+            continue
+        db.delete(item)
+        changed = True
+
+    if changed:
+        db.commit()
+        db.refresh(bundle)
+
+    return bundle
 
 
 @router.get("", response_model=List[TemplateBundleResponse])
@@ -150,7 +233,7 @@ def list_bundles(
     _: User = Depends(get_current_user),
 ):
     bundles = db.query(TemplateBundle).order_by(TemplateBundle.created_at.desc()).all()
-    return [_bundle_to_response(b) for b in bundles]
+    return [_bundle_to_response(_sync_bundle_items_from_folder(db, b)) for b in bundles]
 
 
 @router.get("/{bundle_id}", response_model=TemplateBundleResponse)
@@ -162,7 +245,7 @@ def get_bundle(
     b = db.query(TemplateBundle).filter(TemplateBundle.id == bundle_id).first()
     if not b:
         raise HTTPException(status_code=404, detail="번들을 찾을 수 없습니다")
-    return _bundle_to_response(b)
+    return _bundle_to_response(_sync_bundle_items_from_folder(db, b))
 
 
 def _render_docx(template_data: bytes, field_values: dict) -> bytes:
@@ -861,6 +944,7 @@ async def generate_bundle(
     b = db.query(TemplateBundle).filter(TemplateBundle.id == bundle_id).first()
     if not b:
         raise HTTPException(status_code=404, detail="번들을 찾을 수 없습니다")
+    b = _sync_bundle_items_from_folder(db, b)
 
     form = await request.form()
     try:
@@ -870,9 +954,9 @@ async def generate_bundle(
         raise HTTPException(status_code=422, detail=f"잘못된 요청: {e}")
 
     if not selected_items:
-        selected_items = [item.id for item in b.items]
+        selected_items = [item.id for item in _ordered_bundle_items(b)]
 
-    items = [item for item in b.items if item.id in selected_items]
+    items = [item for item in _ordered_bundle_items(b) if item.id in selected_items]
     if not items:
         raise HTTPException(status_code=400, detail="생성할 문서가 선택되지 않았습니다")
 
