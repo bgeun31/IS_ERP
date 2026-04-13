@@ -128,12 +128,9 @@ export default function DeviceDetailPage() {
     if (!selected?.log_file_id) return;
     setSysLogLoading(true);
     const fetch = async () => {
-      let content = rawLog;
-      if (!content) {
-        const res = await getRawLog(selected.log_file_id!);
-        content = res.data.content;
-        setRawLog(content);
-      }
+      const res = await getRawLog(selected.log_file_id!);
+      const content = res.data.content;
+      setRawLog(content);
       setSysLog(extractLogSections(content, ['show log']));
       setSysLogLoading(false);
     };
