@@ -54,6 +54,19 @@ function normalizeSerial(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+function formatStatusChangeDate(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+
+  const isoLikeMatch = trimmed.match(/^(\d{4}\/\d{2}\/\d{2})/);
+  if (isoLikeMatch) return isoLikeMatch[1];
+
+  return trimmed.split(" ")[0] || trimmed;
+}
+
 function buildDuplicateSerialMap(items: AssetItem[]): Record<string, AssetItem[]> {
   const grouped: Record<string, AssetItem[]> = {};
 
@@ -168,7 +181,7 @@ export default function AssetManagementPage() {
 
   const startEdit = (device: string, key: string, currentValue: string | null) => {
     setEditCell({ device, key });
-    setEditValue(currentValue ?? '');
+    setEditValue(key === 'status_change_date' ? (formatStatusChangeDate(currentValue) ?? '') : (currentValue ?? ''));
   };
 
   const openDuplicateResolution = (serial: string) => {
@@ -484,6 +497,7 @@ export default function AssetManagementPage() {
                       </td>
                       {COLUMNS.map((col) => {
                         const value = asset[col.key] as string | null;
+                        const displayValue = col.key === 'status_change_date' ? formatStatusChangeDate(value) : value;
                         const isEditing = editCell?.device === asset.device_name && editCell?.key === col.key;
                         const serial = col.key === 'serial_number' ? normalizeSerial(value) : null;
                         const isDuplicateSerial = !!serial && !!duplicateSerialMap[serial];
@@ -529,12 +543,12 @@ export default function AssetManagementPage() {
                             title={
                               isDuplicateRow && rowSerial
                                 ? `${rowSerial} (중복 행: 클릭하여 비교/정리)`
-                                : value
-                                  ? `${value} (클릭하여 편집)`
+                                : displayValue
+                                  ? `${displayValue} (클릭하여 편집)`
                                   : '클릭하여 편집'
                             }
                           >
-                            {value ?? <span style={{ color: '#cbd5e0' }}>-</span>}
+                            {displayValue ?? <span style={{ color: '#cbd5e0' }}>-</span>}
                           </td>
                         );
                       })}
