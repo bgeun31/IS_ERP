@@ -127,6 +127,23 @@ export interface AssetItem {
   note: string | null;
 }
 
+export interface SpareAssetItem {
+  id: number;
+  idc_primary: string | null;
+  category: string | null;
+  model_name: string | null;
+  hostname: string | null;
+  asset_number: string | null;
+  serial_number: string | null;
+  contract_period: string | null;
+  note: string | null;
+  idc_secondary: string | null;
+  asset_sticker: string | null;
+  rfid_attached: string | null;
+  asset_status: string | null;
+  note_before_after: string | null;
+}
+
 export interface DocumentVariable {
   key: string;
   label: string;

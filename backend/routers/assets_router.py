@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models import Asset, DeviceSnapshot, LogFile, User
+from models import Asset, DeviceSnapshot, LogFile, SpareAsset, User
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -30,6 +30,13 @@ _MANUAL_FIELDS = [
     "config_inspection", "env_inspection", "telnet_accessible",
     "asset_sticker", "rfid_attached", "cmdb_match",
     "uplink_redundancy", "vim_module", "note_before_after", "note",
+]
+
+_SPARE_FIELDS = [
+    "idc_primary", "category", "model_name", "hostname",
+    "asset_number", "serial_number", "contract_period", "note",
+    "idc_secondary", "asset_sticker", "rfid_attached",
+    "asset_status", "note_before_after",
 ]
 
 # 엑셀 헤더 → 필드 매핑
@@ -94,6 +101,22 @@ class AssetUpdate(BaseModel):
     note: Optional[str] = None
 
 
+class SpareAssetUpdate(BaseModel):
+    idc_primary: Optional[str] = None
+    category: Optional[str] = None
+    model_name: Optional[str] = None
+    hostname: Optional[str] = None
+    asset_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    contract_period: Optional[str] = None
+    note: Optional[str] = None
+    idc_secondary: Optional[str] = None
+    asset_sticker: Optional[str] = None
+    rfid_attached: Optional[str] = None
+    asset_status: Optional[str] = None
+    note_before_after: Optional[str] = None
+
+
 def _asset_row(asset: Asset) -> dict:
     """Asset 레코드를 응답 dict로 변환."""
     row: dict = {"device_name": asset.device_name}
@@ -118,6 +141,66 @@ def _snap_row(snap: DeviceSnapshot) -> dict:
     for field in _MANUAL_FIELDS:
         row[field] = None
     return row
+
+
+def _spare_asset_row(asset: SpareAsset) -> dict:
+    row: dict = {"id": asset.id}
+    for field in _SPARE_FIELDS:
+        row[field] = getattr(asset, field, None)
+    return row
+
+
+def _normalize_spare_header(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _build_spare_excel_map(header: list[str]) -> tuple[dict[int, str], Optional[int]]:
+    occurrence: dict[str, int] = {}
+    col_map: dict[int, str] = {}
+    hostname_col: Optional[int] = None
+
+    for idx, raw_header in enumerate(header):
+        normalized = _normalize_spare_header(raw_header)
+        if not normalized:
+            continue
+
+        occurrence[normalized] = occurrence.get(normalized, 0) + 1
+        order = occurrence[normalized]
+
+        field: Optional[str] = None
+        if normalized == "idc":
+            field = "idc_primary" if order == 1 else "idc_secondary"
+        elif normalized == "구분":
+            field = "category"
+        elif normalized == "모델명":
+            field = "model_name"
+        elif normalized == "hostname":
+            field = "hostname"
+        elif normalized == "자산번호":
+            field = "asset_number"
+        elif normalized == "serialnum":
+            field = "serial_number"
+        elif normalized == "계약기간":
+            field = "contract_period"
+        elif normalized == "비고" and order == 1:
+            field = "note"
+        elif normalized == "자산스티커":
+            field = "asset_sticker"
+        elif normalized == "rfid부착":
+            field = "rfid_attached"
+        elif normalized == "자산":
+            field = "asset_status"
+        elif normalized == "비고(수정전,후내용표기)":
+            field = "note_before_after"
+
+        if not field:
+            continue
+
+        col_map[idx] = field
+        if field == "hostname":
+            hostname_col = idx
+
+    return col_map, hostname_col
 
 
 def _get_latest_snaps(db: Session) -> dict:
@@ -311,6 +394,139 @@ def sync_from_logs(
 
     db.commit()
     return {"synced": synced, "created": created}
+
+
+@router.get("/spare")
+def list_spare_assets(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    assets = (
+        db.query(SpareAsset)
+        .filter(SpareAsset.deleted.is_(False))
+        .order_by(SpareAsset.hostname.asc())
+        .all()
+    )
+    return [_spare_asset_row(asset) for asset in assets]
+
+
+@router.post("/spare/upload")
+async def upload_spare_asset_excel(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="파일이 없습니다")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    if ext not in ("xlsx", "xls"):
+        raise HTTPException(status_code=400, detail="xlsx 또는 xls 파일만 지원합니다")
+
+    data = await file.read()
+    try:
+        wb = load_workbook(filename=io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.active
+        if ws is None:
+            raise HTTPException(status_code=400, detail="시트를 찾을 수 없습니다")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"엑셀 파일을 읽을 수 없습니다: {e}")
+
+    rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+    if len(rows) < 2:
+        raise HTTPException(status_code=400, detail="데이터가 없습니다 (헤더 + 최소 1행 필요)")
+
+    header = [str(c).strip() if c is not None else "" for c in rows[0]]
+    col_map, hostname_col = _build_spare_excel_map(header)
+    if hostname_col is None:
+        raise HTTPException(
+            status_code=400,
+            detail="'HostName' 열을 찾을 수 없습니다. 엑셀 첫 행에 'HostName' 헤더가 필요합니다.",
+        )
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: List[str] = []
+
+    for row_idx, row in enumerate(rows[1:], start=2):
+        hostname_val = str(row[hostname_col]).strip() if hostname_col < len(row) and row[hostname_col] is not None else ""
+        if not hostname_val:
+            skipped += 1
+            continue
+
+        try:
+            asset = db.query(SpareAsset).filter(SpareAsset.hostname == hostname_val).first()
+            is_new = asset is None
+            if is_new:
+                asset = SpareAsset(hostname=hostname_val)
+                db.add(asset)
+            elif asset.deleted:
+                asset.deleted = False
+
+            for col_idx, field in col_map.items():
+                if col_idx >= len(row):
+                    continue
+                cell_val = row[col_idx]
+                if cell_val is None:
+                    continue
+                str_val = str(cell_val).strip()
+                if not str_val:
+                    continue
+                setattr(asset, field, str_val)
+
+            if is_new:
+                created += 1
+            else:
+                updated += 1
+        except Exception as e:
+            errors.append(f"{row_idx}행: {e}")
+
+    db.commit()
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+        "total_rows": len(rows) - 1,
+    }
+
+
+@router.put("/spare/{spare_asset_id}")
+def update_spare_asset(
+    spare_asset_id: int,
+    data: SpareAssetUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    asset = db.query(SpareAsset).filter(SpareAsset.id == spare_asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="예비장비를 찾을 수 없습니다")
+
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(asset, key, value)
+
+    asset.deleted = False
+    db.commit()
+    db.refresh(asset)
+    return _spare_asset_row(asset)
+
+
+@router.delete("/spare/{spare_asset_id}")
+def delete_spare_asset(
+    spare_asset_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    asset = db.query(SpareAsset).filter(SpareAsset.id == spare_asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="예비장비를 찾을 수 없습니다")
+
+    asset.deleted = True
+    db.commit()
+    return {"deleted": True, "id": spare_asset_id}
 
 
 # ── 동적 경로 (맨 아래) ──

@@ -147,6 +147,27 @@ class Asset(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class SpareAsset(Base):
+    __tablename__ = "spare_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hostname = Column(String(255), unique=True, nullable=False, index=True)
+    deleted = Column(Boolean, nullable=False, default=False, server_default="0")
+    idc_primary = Column(String(255))
+    category = Column(String(255))
+    model_name = Column(String(255))
+    asset_number = Column(String(255))
+    serial_number = Column(String(255))
+    contract_period = Column(String(255))
+    note = Column(String(1000))
+    idc_secondary = Column(String(255))
+    asset_sticker = Column(String(255))
+    rfid_attached = Column(String(50))
+    asset_status = Column(String(255))
+    note_before_after = Column(String(1000))
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class DocumentTemplate(Base):
     __tablename__ = "document_templates"
 

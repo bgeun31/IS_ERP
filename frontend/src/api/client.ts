@@ -8,6 +8,7 @@ import type {
   DocumentTemplate,
   DocumentVariable,
   LogFile,
+  SpareAssetItem,
   TemplateBundle,
   UploadResponse,
   User,
@@ -55,6 +56,13 @@ export const updateAsset = (deviceName: string, data: Partial<AssetItem>) =>
   api.put<AssetItem>(`/assets/${encodeURIComponent(deviceName)}`, data);
 export const deleteAsset = (deviceName: string) =>
   api.delete<{ deleted: boolean; device_name: string }>(`/assets/${encodeURIComponent(deviceName)}`);
+export const getSpareAssets = () => api.get<SpareAssetItem[]>('/assets/spare');
+export const updateSpareAsset = (id: number, data: Partial<SpareAssetItem>) =>
+  api.put<SpareAssetItem>(`/assets/spare/${id}`, data);
+export const deleteSpareAsset = (id: number) =>
+  api.delete<{ deleted: boolean; id: number }>(`/assets/spare/${id}`);
+export const uploadSpareAssetExcel = (formData: FormData) =>
+  api.post<{ created: number; updated: number; skipped: number; errors: string[]; total_rows: number }>('/assets/spare/upload', formData);
 export const uploadAssetExcel = (formData: FormData) =>
   api.post<{ created: number; updated: number; skipped: number; errors: string[]; total_rows: number }>('/assets/upload', formData);
 export const syncAssetsFromLogs = () =>
