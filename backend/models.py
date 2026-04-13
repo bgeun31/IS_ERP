@@ -151,7 +151,7 @@ class SpareAsset(Base):
     __tablename__ = "spare_assets"
 
     id = Column(Integer, primary_key=True, index=True)
-    hostname = Column(String(255), unique=True, nullable=False, index=True)
+    hostname = Column(String(255), nullable=True, index=True)
     deleted = Column(Boolean, nullable=False, default=False, server_default="0")
     idc_primary = Column(String(255))
     category = Column(String(255))

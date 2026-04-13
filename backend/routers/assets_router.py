@@ -203,6 +203,21 @@ def _build_spare_excel_map(header: list[str]) -> tuple[dict[int, str], Optional[
     return col_map, hostname_col
 
 
+def _extract_spare_row_values(row: tuple, col_map: dict[int, str]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for col_idx, field in col_map.items():
+        if col_idx >= len(row):
+            continue
+        cell_val = row[col_idx]
+        if cell_val is None:
+            continue
+        str_val = str(cell_val).strip()
+        if not str_val:
+            continue
+        values[field] = str_val
+    return values
+
+
 def _get_latest_snaps(db: Session) -> dict:
     """장비별 최신 스냅샷 dict 반환."""
     subq = (
@@ -451,35 +466,19 @@ async def upload_spare_asset_excel(
     errors: List[str] = []
 
     for row_idx, row in enumerate(rows[1:], start=2):
-        hostname_val = str(row[hostname_col]).strip() if hostname_col < len(row) and row[hostname_col] is not None else ""
-        if not hostname_val:
-            skipped += 1
-            continue
-
         try:
-            asset = db.query(SpareAsset).filter(SpareAsset.hostname == hostname_val).first()
-            is_new = asset is None
-            if is_new:
-                asset = SpareAsset(hostname=hostname_val)
-                db.add(asset)
-            elif asset.deleted:
-                asset.deleted = False
+            row_values = _extract_spare_row_values(row, col_map)
+            if not row_values:
+                skipped += 1
+                continue
 
-            for col_idx, field in col_map.items():
-                if col_idx >= len(row):
-                    continue
-                cell_val = row[col_idx]
-                if cell_val is None:
-                    continue
-                str_val = str(cell_val).strip()
-                if not str_val:
-                    continue
+            asset = SpareAsset(hostname=row_values.get("hostname"))
+            db.add(asset)
+
+            for field, str_val in row_values.items():
                 setattr(asset, field, str_val)
 
-            if is_new:
-                created += 1
-            else:
-                updated += 1
+            created += 1
         except Exception as e:
             errors.append(f"{row_idx}행: {e}")
 
@@ -491,6 +490,18 @@ async def upload_spare_asset_excel(
         "errors": errors,
         "total_rows": len(rows) - 1,
     }
+
+
+@router.post("/spare")
+def create_spare_asset(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    asset = SpareAsset()
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    return _spare_asset_row(asset)
 
 
 @router.put("/spare/{spare_asset_id}")

@@ -57,6 +57,7 @@ export const updateAsset = (deviceName: string, data: Partial<AssetItem>) =>
 export const deleteAsset = (deviceName: string) =>
   api.delete<{ deleted: boolean; device_name: string }>(`/assets/${encodeURIComponent(deviceName)}`);
 export const getSpareAssets = () => api.get<SpareAssetItem[]>('/assets/spare');
+export const createSpareAsset = () => api.post<SpareAssetItem>('/assets/spare');
 export const updateSpareAsset = (id: number, data: Partial<SpareAssetItem>) =>
   api.put<SpareAssetItem>(`/assets/spare/${id}`, data);
 export const deleteSpareAsset = (id: number) =>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  createSpareAsset,
   deleteAsset,
   deleteSpareAsset,
   getAssets,
@@ -143,6 +144,7 @@ export default function AssetManagementPage() {
   const [uploading, setUploading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [selectedSpareIds, setSelectedSpareIds] = useState<number[]>([]);
   const [duplicateResolution, setDuplicateResolution] = useState<DuplicateResolutionState | null>(null);
   const [uploadResult, setUploadResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
   const [syncResult, setSyncResult] = useState<{ synced: number; created: number } | null>(null);
@@ -183,6 +185,7 @@ export default function AssetManagementPage() {
     setDuplicateResolution(null);
     setUploadResult(null);
     setSyncResult(null);
+    setSelectedSpareIds([]);
   }, [activeTab]);
 
   const activeColumns = activeTab === 'assets' ? ASSET_COLUMNS : SPARE_COLUMNS;
@@ -420,9 +423,61 @@ export default function AssetManagementPage() {
     try {
       await deleteSpareAsset(asset.id);
       setSpareAssets((prev) => prev.filter((item) => item.id !== asset.id));
+      setSelectedSpareIds((prev) => prev.filter((id) => id !== asset.id));
       if (editCell?.table === 'spare' && editCell.rowId === asset.id) setEditCell(null);
     } catch {
       alert('행 삭제에 실패했습니다.');
+    } finally {
+      setDeletingKey(null);
+    }
+  };
+
+  const handleAddSpareRow = async () => {
+    if (saving || uploading || deletingKey) return;
+
+    try {
+      const res = await createSpareAsset();
+      setSpareAssets((prev) => [...prev, res.data]);
+      setEditCell({ table: 'spare', rowId: res.data.id, key: 'hostname' });
+      setEditValue('');
+    } catch {
+      alert('새 행 추가에 실패했습니다.');
+    }
+  };
+
+  const toggleSpareSelection = (id: number) => {
+    setSelectedSpareIds((prev) => (
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    ));
+  };
+
+  const visibleSpareIds = filteredSpareAssets.map((asset) => asset.id);
+  const allVisibleSpareSelected = visibleSpareIds.length > 0 && visibleSpareIds.every((id) => selectedSpareIds.includes(id));
+
+  const toggleAllVisibleSpareRows = () => {
+    setSelectedSpareIds((prev) => {
+      if (allVisibleSpareSelected) {
+        return prev.filter((id) => !visibleSpareIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...visibleSpareIds]));
+    });
+  };
+
+  const handleDeleteSelectedSpareRows = async () => {
+    if (selectedSpareIds.length === 0 || deletingKey || saving) return;
+    if (!confirm(`선택한 ${selectedSpareIds.length}개 행을 삭제하시겠습니까?`)) return;
+
+    setDeletingKey('spare:bulk');
+    try {
+      await Promise.all(selectedSpareIds.map((id) => deleteSpareAsset(id)));
+      const selectedSet = new Set(selectedSpareIds);
+      setSpareAssets((prev) => prev.filter((asset) => !selectedSet.has(asset.id)));
+      setSelectedSpareIds([]);
+      if (editCell?.table === 'spare' && selectedSet.has(editCell.rowId)) {
+        setEditCell(null);
+      }
+    } catch {
+      alert('선택 행 삭제에 실패했습니다.');
     } finally {
       setDeletingKey(null);
     }
@@ -582,15 +637,23 @@ export default function AssetManagementPage() {
   const renderSpareTable = () => (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 260px)' }}>
-        <table style={{ minWidth: spareColWidths.reduce((sum, width) => sum + width, 60), borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
+        <table style={{ minWidth: spareColWidths.reduce((sum, width) => sum + width, 104), borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
           <colgroup>
+            <col style={{ width: 44 }} />
             <col style={{ width: 60 }} />
             {spareColWidths.map((width, index) => <col key={index} style={{ width }} />)}
           </colgroup>
           <thead>
             <tr>
               <th style={{
-                position: 'sticky', top: 0, left: 0, zIndex: 3,
+                position: 'sticky', top: 0, left: 0, zIndex: 4,
+                background: '#f7fafc', padding: '10px 8px', borderBottom: '2px solid #e2e8f0',
+                borderRight: '1px solid #e2e8f0', textAlign: 'center',
+              }}>
+                <input type="checkbox" checked={allVisibleSpareSelected} onChange={toggleAllVisibleSpareRows} />
+              </th>
+              <th style={{
+                position: 'sticky', top: 0, left: 44, zIndex: 3,
                 background: '#f7fafc', padding: '10px 12px', borderBottom: '2px solid #e2e8f0',
                 borderRight: '2px solid #e2e8f0', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap',
               }}>
@@ -629,7 +692,18 @@ export default function AssetManagementPage() {
               return (
                 <tr key={asset.id} style={{ borderBottom: '1px solid #edf2f7' }}>
                   <td style={{
-                    position: 'sticky', left: 0, zIndex: 1,
+                    position: 'sticky', left: 0, zIndex: 2,
+                    background: '#fff', padding: '8px 8px', borderRight: '1px solid #e2e8f0',
+                    textAlign: 'center',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedSpareIds.includes(asset.id)}
+                      onChange={() => toggleSpareSelection(asset.id)}
+                    />
+                  </td>
+                  <td style={{
+                    position: 'sticky', left: 44, zIndex: 1,
                     background: '#fff', padding: '8px 12px',
                     borderRight: '2px solid #e2e8f0',
                     fontWeight: 600, fontSize: 12, color: '#718096',
@@ -702,6 +776,27 @@ export default function AssetManagementPage() {
             )}
           </tbody>
         </table>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, padding: '14px 0', borderTop: '1px solid #edf2f7', background: '#fafcff' }}>
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={handleDeleteSelectedSpareRows}
+          disabled={selectedSpareIds.length === 0 || deletingKey === 'spare:bulk'}
+          style={{ fontSize: 12, padding: '8px 14px' }}
+          title="선택한 예비장비 행 삭제"
+        >
+          {deletingKey === 'spare:bulk' ? '삭제 중...' : `선택 삭제${selectedSpareIds.length > 0 ? ` (${selectedSpareIds.length})` : ''}`}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={handleAddSpareRow}
+          style={{ minWidth: 44, height: 36, justifyContent: 'center', fontSize: 20, lineHeight: 1 }}
+          title="예비장비 행 추가"
+        >
+          +
+        </button>
       </div>
     </div>
   );
