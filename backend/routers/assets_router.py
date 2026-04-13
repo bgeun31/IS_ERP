@@ -150,8 +150,14 @@ def list_assets(
     _: User = Depends(get_current_user),
 ):
     """자산 목록 반환. Asset 레코드 우선, Asset 없는 로그 장비도 포함."""
-    asset_map = {a.device_name: a for a in db.query(Asset).all()}
-    snap_map = _get_latest_snaps(db)
+    assets = db.query(Asset).all()
+    deleted_names = {asset.device_name for asset in assets if asset.deleted}
+    asset_map = {asset.device_name: asset for asset in assets if not asset.deleted}
+    snap_map = {
+        device_name: snap
+        for device_name, snap in _get_latest_snaps(db).items()
+        if device_name not in deleted_names
+    }
 
     all_names = sorted(set(asset_map.keys()) | set(snap_map.keys()))
     result = []
@@ -230,6 +236,8 @@ async def upload_asset_excel(
             if is_new:
                 asset = Asset(device_name=device_name)
                 db.add(asset)
+            elif asset.deleted:
+                asset.deleted = False
 
             for col_idx, field in col_map.items():
                 if col_idx >= len(row):
@@ -277,6 +285,8 @@ def sync_from_logs(
     created = 0
     for device_name, snap in snap_map.items():
         asset = db.query(Asset).filter(Asset.device_name == device_name).first()
+        if asset and asset.deleted:
+            continue
         if not asset:
             asset = Asset(device_name=device_name)
             db.add(asset)
@@ -318,6 +328,8 @@ def update_asset(
     if not asset:
         asset = Asset(device_name=device_name)
         db.add(asset)
+    elif asset.deleted:
+        asset.deleted = False
 
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -329,3 +341,21 @@ def update_asset(
     db.commit()
     db.refresh(asset)
     return _asset_row(asset)
+
+
+@router.delete("/{device_name}")
+def delete_asset(
+    device_name: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """특정 장비를 자산관리 목록에서 숨깁니다."""
+    asset = db.query(Asset).filter(Asset.device_name == device_name).first()
+    if not asset:
+        asset = Asset(device_name=device_name, deleted=True)
+        db.add(asset)
+    else:
+        asset.deleted = True
+
+    db.commit()
+    return {"deleted": True, "device_name": device_name}

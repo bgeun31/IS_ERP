@@ -53,6 +53,8 @@ export const getDevice = (name: string) =>
 export const getAssets = () => api.get<AssetItem[]>('/assets');
 export const updateAsset = (deviceName: string, data: Partial<AssetItem>) =>
   api.put<AssetItem>(`/assets/${encodeURIComponent(deviceName)}`, data);
+export const deleteAsset = (deviceName: string) =>
+  api.delete<{ deleted: boolean; device_name: string }>(`/assets/${encodeURIComponent(deviceName)}`);
 export const uploadAssetExcel = (formData: FormData) =>
   api.post<{ created: number; updated: number; skipped: number; errors: string[]; total_rows: number }>('/assets/upload', formData);
 export const syncAssetsFromLogs = () =>

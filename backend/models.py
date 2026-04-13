@@ -115,6 +115,7 @@ class Asset(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     device_name = Column(String(255), unique=True, nullable=False, index=True)
+    deleted = Column(Boolean, nullable=False, default=False, server_default="0")
     # 자동 필드 오버라이드 (값이 있으면 로그 데이터 대신 사용)
     manufacturer_override = Column(String(255))
     model_override = Column(String(255))

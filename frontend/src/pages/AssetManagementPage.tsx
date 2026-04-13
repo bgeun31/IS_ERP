@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAssets, syncAssetsFromLogs, updateAsset, uploadAssetExcel } from '../api/client';
+import { deleteAsset, getAssets, syncAssetsFromLogs, updateAsset, uploadAssetExcel } from '../api/client';
 import Layout from '../components/Layout';
 import type { AssetItem } from '../types';
 
@@ -89,6 +89,7 @@ export default function AssetManagementPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [deletingDevice, setDeletingDevice] = useState<string | null>(null);
   const [duplicateResolution, setDuplicateResolution] = useState<DuplicateResolutionState | null>(null);
   const [uploadResult, setUploadResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
   const [syncResult, setSyncResult] = useState<{ synced: number; created: number } | null>(null);
@@ -256,11 +257,11 @@ export default function AssetManagementPage() {
   const handleResolveDuplicate = async () => {
     if (!duplicateResolution) return;
 
-    const devicesToClear = duplicateResolution.candidates.filter(
+    const devicesToDelete = duplicateResolution.candidates.filter(
       (candidate) => candidate.device_name !== duplicateResolution.selectedDevice
     );
 
-    if (devicesToClear.length === 0) {
+    if (devicesToDelete.length === 0) {
       setDuplicateResolution(null);
       return;
     }
@@ -268,21 +269,40 @@ export default function AssetManagementPage() {
     setDuplicateResolution((prev) => (prev ? { ...prev, saving: true } : prev));
     try {
       await Promise.all(
-        devicesToClear.map((candidate) =>
-          updateAsset(candidate.device_name, { serial_number: null })
+        devicesToDelete.map((candidate) =>
+          deleteAsset(candidate.device_name)
         )
       );
 
-      const clearTargets = new Set(devicesToClear.map((candidate) => candidate.device_name));
+      const deleteTargets = new Set(devicesToDelete.map((candidate) => candidate.device_name));
       setAssets((prev) =>
-        prev.map((asset) =>
-          clearTargets.has(asset.device_name) ? { ...asset, serial_number: null } : asset
-        )
+        prev.filter((asset) => !deleteTargets.has(asset.device_name))
       );
       setDuplicateResolution(null);
     } catch {
       alert('중복 시리얼 정리에 실패했습니다.');
       setDuplicateResolution((prev) => (prev ? { ...prev, saving: false } : prev));
+    }
+  };
+
+  const handleDeleteRow = async (deviceName: string) => {
+    if (deletingDevice || saving || duplicateResolution?.saving) return;
+    if (!confirm(`${deviceName} 행을 삭제하시겠습니까?\n삭제 후 자산관리 목록과 로그 동기화 대상에서 제외됩니다.`)) return;
+
+    setDeletingDevice(deviceName);
+    try {
+      await deleteAsset(deviceName);
+      setAssets((prev) => prev.filter((asset) => asset.device_name !== deviceName));
+      if (editCell?.device === deviceName) {
+        setEditCell(null);
+      }
+      if (duplicateResolution?.candidates.some((candidate) => candidate.device_name === deviceName)) {
+        setDuplicateResolution(null);
+      }
+    } catch {
+      alert('행 삭제에 실패했습니다.');
+    } finally {
+      setDeletingDevice(null);
     }
   };
 
@@ -440,8 +460,27 @@ export default function AssetManagementPage() {
                         borderRight: '2px solid #e2e8f0',
                         fontWeight: 600, fontSize: 12, color: '#718096',
                         boxShadow: isDuplicateRow ? 'inset 0 0 0 1px #fc8181' : undefined,
+                        cursor: deletingDevice ? 'default' : 'pointer',
                       }}>
-                        {idx + 1}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRow(asset.device_name)}
+                          disabled={deletingDevice === asset.device_name}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: isDuplicateRow ? '#9b2c2c' : '#718096',
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: deletingDevice ? 'default' : 'pointer',
+                            padding: 0,
+                            width: '100%',
+                            textAlign: 'left',
+                          }}
+                          title={deletingDevice === asset.device_name ? '삭제 중...' : `${asset.device_name} 행 삭제`}
+                        >
+                          {deletingDevice === asset.device_name ? '...' : idx + 1}
+                        </button>
                       </td>
                       {COLUMNS.map((col) => {
                         const value = asset[col.key] as string | null;
@@ -470,8 +509,8 @@ export default function AssetManagementPage() {
                           <td
                             key={col.key}
                             onClick={() => {
-                              if (isDuplicateSerial && serial) {
-                                openDuplicateResolution(serial);
+                              if (isDuplicateRow && rowSerial) {
+                                openDuplicateResolution(rowSerial);
                                 return;
                               }
                               startEdit(asset.device_name, col.key, value);
@@ -488,8 +527,8 @@ export default function AssetManagementPage() {
                               fontWeight: isDuplicateSerial ? 700 : undefined,
                             }}
                             title={
-                              isDuplicateSerial && serial
-                                ? `${serial} (중복 시리얼: 클릭하여 정리)`
+                              isDuplicateRow && rowSerial
+                                ? `${rowSerial} (중복 행: 클릭하여 비교/정리)`
                                 : value
                                   ? `${value} (클릭하여 편집)`
                                   : '클릭하여 편집'
@@ -521,7 +560,7 @@ export default function AssetManagementPage() {
             <div className="modal-title">중복 시리얼 정리</div>
             <p style={{ fontSize: 13, color: '#4a5568', marginBottom: 16 }}>
               시리얼 <strong style={{ fontFamily: 'monospace' }}>{duplicateResolution.serial}</strong> 이(가) 여러 장비에 등록되어 있습니다.
-              유지할 장비를 선택하면 나머지 장비의 시리얼 값은 비워집니다.
+              유지할 장비를 선택하면 선택되지 않은 나머지 행은 삭제됩니다.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 320, overflowY: 'auto' }}>
               {duplicateResolution.candidates.map((candidate) => (
@@ -565,7 +604,7 @@ export default function AssetManagementPage() {
                 취소
               </button>
               <button type="button" className="btn btn-danger" onClick={handleResolveDuplicate} disabled={duplicateResolution.saving}>
-                {duplicateResolution.saving ? '정리 중...' : '선택 항목만 유지'}
+                {duplicateResolution.saving ? '정리 중...' : '선택 항목만 남기기'}
               </button>
             </div>
           </div>

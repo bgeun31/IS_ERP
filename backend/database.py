@@ -45,6 +45,7 @@ def run_schema_migrations() -> None:
         "management_ip": "ALTER TABLE device_snapshots ADD COLUMN management_ip VARCHAR(100) NULL",
     }
     asset_columns = {
+        "deleted": "ALTER TABLE assets ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT FALSE",
         "manufacturer_override": "ALTER TABLE assets ADD COLUMN manufacturer_override VARCHAR(255) NULL",
         "model_override": "ALTER TABLE assets ADD COLUMN model_override VARCHAR(255) NULL",
         "serial_number_override": "ALTER TABLE assets ADD COLUMN serial_number_override VARCHAR(255) NULL",
