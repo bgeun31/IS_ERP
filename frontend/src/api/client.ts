@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type {
+  AssetItem,
   BundlePurchaseOrderExtractResult,
   DeviceListItem,
   DeviceSnapshot,
@@ -47,6 +48,15 @@ export const getDevices = (year?: number, month?: number) =>
   api.get<DeviceListItem[]>('/devices', { params: { year, month } });
 export const getDevice = (name: string) =>
   api.get<{ device_name: string; snapshots: DeviceSnapshot[] }>(`/devices/${encodeURIComponent(name)}`);
+
+// Assets
+export const getAssets = () => api.get<AssetItem[]>('/assets');
+export const updateAsset = (deviceName: string, data: Partial<AssetItem>) =>
+  api.put<AssetItem>(`/assets/${encodeURIComponent(deviceName)}`, data);
+export const uploadAssetExcel = (formData: FormData) =>
+  api.post<{ created: number; updated: number; skipped: number; errors: string[]; total_rows: number }>('/assets/upload', formData);
+export const syncAssetsFromLogs = () =>
+  api.post<{ synced: number; created: number }>('/assets/sync');
 
 // Logs
 export const getLogs = (year?: number, month?: number) =>

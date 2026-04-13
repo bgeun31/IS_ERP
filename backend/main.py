@@ -7,6 +7,7 @@ from auth import get_password_hash
 from config import settings
 from database import Base, SessionLocal, create_database_if_not_exists, engine, run_schema_migrations
 from minio_client import ensure_bucket
+from routers.assets_router import router as assets_router
 from routers.auth_router import router as auth_router
 from routers.bundles_router import router as bundles_router
 from routers.devices_router import router as devices_router
@@ -76,6 +77,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(logs_router)
 app.include_router(devices_router)
+app.include_router(assets_router)
 app.include_router(documents_router)
 app.include_router(bundles_router)
 

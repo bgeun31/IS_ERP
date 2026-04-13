@@ -6,6 +6,7 @@ import DocumentCreatePage from './pages/DocumentCreatePage';
 import DocumentHistoryPage from './pages/DocumentHistoryPage';
 import DocumentTemplatePage from './pages/DocumentTemplatePage';
 import InfraSecurityBundlePage from './pages/InfraSecurityBundlePage';
+import AssetManagementPage from './pages/AssetManagementPage';
 import LoginPage from './pages/LoginPage';
 import LogListPage from './pages/LogListPage';
 import LogUploadPage from './pages/LogUploadPage';
@@ -27,6 +28,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
       <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+      <Route path="/assets" element={<ProtectedRoute><AssetManagementPage /></ProtectedRoute>} />
       <Route path="/devices/:name" element={<ProtectedRoute><DeviceDetailPage /></ProtectedRoute>} />
       <Route path="/upload" element={<ProtectedRoute><LogUploadPage /></ProtectedRoute>} />
       <Route path="/logs" element={<ProtectedRoute><LogListPage /></ProtectedRoute>} />

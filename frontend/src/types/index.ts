@@ -94,6 +94,39 @@ export interface UploadResponse {
 
 // Document types
 
+export interface AssetItem {
+  device_name: string;
+  // 로그 자동 추출
+  manufacturer: string | null;
+  model: string | null;
+  serial_number: string | null;
+  hostname: string | null;
+  os: string | null;
+  ip: string | null;
+  // 수동 입력
+  asset_number: string | null;
+  resource_status: string | null;
+  idc_name: string | null;
+  floor_name: string | null;
+  rack_row: string | null;
+  rack_name: string | null;
+  hole_number: string | null;
+  status_change_date: string | null;
+  device_category: string | null;
+  asset_inspection: string | null;
+  status_inspection: string | null;
+  config_inspection: string | null;
+  env_inspection: string | null;
+  telnet_accessible: string | null;
+  asset_sticker: string | null;
+  rfid_attached: string | null;
+  cmdb_match: string | null;
+  uplink_redundancy: string | null;
+  vim_module: string | null;
+  note_before_after: string | null;
+  note: string | null;
+}
+
 export interface DocumentVariable {
   key: string;
   label: string;

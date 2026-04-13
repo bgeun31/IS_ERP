@@ -430,6 +430,62 @@ def _parse_vlans(lines: Optional[List[str]]) -> List[Tuple[str, str]]:
     return vlans
 
 
+_MANUFACTURER_MAP = {
+    'ecs': 'Edge-Core', 'ecgs': 'Edge-Core', 'es3': 'Edge-Core',
+    'dgs': 'D-Link', 'des': 'D-Link', 'dxs': 'D-Link',
+    'ws-c': 'Cisco', 'c9': 'Cisco', 'sg': 'Cisco',
+    'ex': 'Juniper', 'qfx': 'Juniper', 'srx': 'Juniper',
+    's57': 'Huawei', 's67': 'Huawei', 'ce': 'Huawei',
+    'at-': 'Allied Telesis', 'x9': 'Allied Telesis',
+    'icx': 'Brocade', 'fas': 'Brocade',
+    'os6': 'Alcatel-Lucent', 'os9': 'Alcatel-Lucent',
+    'tl-': 'TP-Link',
+    'gs': 'Netgear',
+}
+
+
+def _infer_manufacturer(system_type: Optional[str], version_lines: Optional[List[str]]) -> Optional[str]:
+    if version_lines:
+        for line in version_lines:
+            lower = line.lower()
+            if 'edge-core' in lower or 'edgecore' in lower:
+                return 'Edge-Core'
+            if 'd-link' in lower or 'dlink' in lower:
+                return 'D-Link'
+            if 'cisco' in lower:
+                return 'Cisco'
+            if 'juniper' in lower:
+                return 'Juniper'
+            if 'huawei' in lower:
+                return 'Huawei'
+            if 'allied telesis' in lower:
+                return 'Allied Telesis'
+            if 'brocade' in lower:
+                return 'Brocade'
+            if 'alcatel' in lower:
+                return 'Alcatel-Lucent'
+    if system_type:
+        model_lower = system_type.lower()
+        for prefix, vendor in _MANUFACTURER_MAP.items():
+            if model_lower.startswith(prefix):
+                return vendor
+    return None
+
+
+def _parse_management_ip(lines: Optional[List[str]]) -> Optional[str]:
+    if not lines:
+        return None
+    for line in lines:
+        lower = line.lower().strip()
+        if 'ip address' in lower and ':' in line:
+            val = _after_colon(line).strip()
+            parts = val.split()
+            ip_candidate = parts[0] if parts else val
+            if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip_candidate):
+                return ip_candidate
+    return None
+
+
 def _parse_accounts(lines: Optional[List[str]]) -> Dict[str, bool]:
     names: set = set()
     if lines:
@@ -452,6 +508,9 @@ def parse_log_file(content: str) -> Dict[str, Any]:
     temp_info = _parse_temp(sections.get('show temp'))
     fan_info = _parse_fan(sections.get('show fan'))
 
+    version_lines = sections.get('show version')
+    management_lines = sections.get('show management')
+
     return {
         'banner': _parse_banner(sections.get('show banner')),
         'sntp': _parse_sntp(sections.get('show sntp')),
@@ -459,7 +518,9 @@ def parse_log_file(content: str) -> Dict[str, Any]:
         'port_vlans': _parse_port_vlans(sections.get('show port no')),
         'switch': switch_info,
         'management': management_info,
-        'serial': _parse_serial(sections.get('show version')),
+        'serial': _parse_serial(version_lines),
+        'manufacturer': _infer_manufacturer(switch_info.get('system_type'), version_lines),
+        'management_ip': _parse_management_ip(management_lines),
         'power': _parse_power(sections.get('show power')),
         'fan': fan_info,
         'temp': temp_info,

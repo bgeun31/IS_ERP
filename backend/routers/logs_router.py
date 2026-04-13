@@ -122,6 +122,8 @@ def _process_single_file(
         primary_version=sw.get("primary_version") or None,
         secondary_version=sw.get("secondary_version") or None,
         serial_number=parsed.get("serial") or None,
+        manufacturer=parsed.get("manufacturer") or None,
+        management_ip=parsed.get("management_ip") or None,
         banner=parsed.get("banner"),
         sntp=parsed.get("sntp") or None,
         cpu=parsed.get("cpu"),

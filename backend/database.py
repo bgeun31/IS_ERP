@@ -40,6 +40,18 @@ def run_schema_migrations() -> None:
     template_columns = {
         "folder_name": "ALTER TABLE document_templates ADD COLUMN folder_name VARCHAR(255) NULL",
     }
+    snapshot_columns = {
+        "manufacturer": "ALTER TABLE device_snapshots ADD COLUMN manufacturer VARCHAR(255) NULL",
+        "management_ip": "ALTER TABLE device_snapshots ADD COLUMN management_ip VARCHAR(100) NULL",
+    }
+    asset_columns = {
+        "manufacturer_override": "ALTER TABLE assets ADD COLUMN manufacturer_override VARCHAR(255) NULL",
+        "model_override": "ALTER TABLE assets ADD COLUMN model_override VARCHAR(255) NULL",
+        "serial_number_override": "ALTER TABLE assets ADD COLUMN serial_number_override VARCHAR(255) NULL",
+        "hostname_override": "ALTER TABLE assets ADD COLUMN hostname_override VARCHAR(255) NULL",
+        "os_override": "ALTER TABLE assets ADD COLUMN os_override VARCHAR(255) NULL",
+        "ip_override": "ALTER TABLE assets ADD COLUMN ip_override VARCHAR(100) NULL",
+    }
     bundle_columns = {
         "template_folder": "ALTER TABLE template_bundles ADD COLUMN template_folder VARCHAR(255) NULL",
     }
@@ -61,6 +73,25 @@ def run_schema_migrations() -> None:
 
         for column_name, ddl in user_columns.items():
             if column_name in existing_user_columns:
+                continue
+            conn.execute(text(ddl))
+
+        existing_snapshot_columns = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT COLUMN_NAME
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = 'device_snapshots'
+                    """
+                ),
+                {"schema": settings.DB_NAME},
+            )
+        }
+
+        for column_name, ddl in snapshot_columns.items():
+            if column_name in existing_snapshot_columns:
                 continue
             conn.execute(text(ddl))
 
@@ -96,6 +127,37 @@ def run_schema_migrations() -> None:
                 {"schema": settings.DB_NAME},
             )
         }
+
+        # assets 테이블 마이그레이션
+        asset_table_exists = conn.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = 'assets'
+                """
+            ),
+            {"schema": settings.DB_NAME},
+        ).scalar()
+
+        if asset_table_exists:
+            existing_asset_columns = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT COLUMN_NAME
+                        FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = 'assets'
+                        """
+                    ),
+                    {"schema": settings.DB_NAME},
+                )
+            }
+
+            for column_name, ddl in asset_columns.items():
+                if column_name in existing_asset_columns:
+                    continue
+                conn.execute(text(ddl))
 
         for column_name, ddl in bundle_columns.items():
             if column_name in existing_bundle_columns:

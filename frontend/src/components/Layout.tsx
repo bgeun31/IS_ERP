@@ -34,6 +34,9 @@ export default function Layout({ title, children }: LayoutProps) {
           <NavLink to="/dashboard" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
             <span className="nav-icon">📊</span> 대시보드
           </NavLink>
+          <NavLink to="/assets" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+            <span className="nav-icon">🏢</span> 자산관리
+          </NavLink>
           <NavLink to="/upload" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
             <span className="nav-icon">📁</span> 로그 업로드
           </NavLink>

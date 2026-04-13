@@ -66,6 +66,8 @@ class DeviceSnapshot(Base):
     snmp_access_profile_status = Column(String(50))
     snmp_errors = Column(String(50))
     snmp_auth_errors = Column(String(50))
+    manufacturer = Column(String(255))
+    management_ip = Column(String(100))
     account_admin = Column(Boolean)
     account_user = Column(Boolean)
     parsed_at = Column(DateTime, server_default=func.now())
@@ -106,6 +108,42 @@ class DevicePower(Base):
     state = Column(String(50))
 
     snapshot = relationship("DeviceSnapshot", back_populates="power_supplies")
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_name = Column(String(255), unique=True, nullable=False, index=True)
+    # 자동 필드 오버라이드 (값이 있으면 로그 데이터 대신 사용)
+    manufacturer_override = Column(String(255))
+    model_override = Column(String(255))
+    serial_number_override = Column(String(255))
+    hostname_override = Column(String(255))
+    os_override = Column(String(255))
+    ip_override = Column(String(100))
+    asset_number = Column(String(255))
+    resource_status = Column(String(100))
+    idc_name = Column(String(255))
+    floor_name = Column(String(255))
+    rack_row = Column(String(255))
+    rack_name = Column(String(255))
+    hole_number = Column(String(100))
+    status_change_date = Column(String(100))
+    device_category = Column(String(255))
+    asset_inspection = Column(String(100))
+    status_inspection = Column(String(100))
+    config_inspection = Column(String(100))
+    env_inspection = Column(String(100))
+    telnet_accessible = Column(String(50))
+    asset_sticker = Column(String(50))
+    rfid_attached = Column(String(50))
+    cmdb_match = Column(String(50))
+    uplink_redundancy = Column(String(50))
+    vim_module = Column(String(50))
+    note_before_after = Column(String(1000))
+    note = Column(String(1000))
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class DocumentTemplate(Base):
