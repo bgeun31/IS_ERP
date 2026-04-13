@@ -1,4 +1,5 @@
 backend/seeds/__pycache__/
 backend/routers/__pycache__/
 backend/__pycache__/
+frontend/dist/
 frontend/node_modules/
