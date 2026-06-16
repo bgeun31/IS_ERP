@@ -205,7 +205,7 @@ export default function DashboardPage() {
                     <tr
                       key={d.device_name}
                       className="clickable"
-                      onClick={() => navigate(`/devices/${encodeURIComponent(d.device_name)}`)}
+                      onClick={() => navigate(`/devices/${encodeURIComponent(d.device_name)}?year=${filterYear}&month=${filterMonth}`)}
                     >
                       <td><strong>{d.device_name}</strong></td>
                       <td>{s?.system_type || '-'}</td>

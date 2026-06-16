@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getDevice, getDevices, getRawLog } from '../api/client';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
@@ -80,6 +80,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 export default function DeviceDetailPage() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [snapshots, setSnapshots] = useState<DeviceSnapshot[]>([]);
   const [selected, setSelected] = useState<DeviceSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,25 +92,43 @@ export default function DeviceDetailPage() {
   const [sysLogDateFrom, setSysLogDateFrom] = useState('');
   const [sysLogDateTo, setSysLogDateTo] = useState('');
   const [deviceNames, setDeviceNames] = useState<string[]>([]);
+  const rawYearParam = searchParams.get('year');
+  const rawMonthParam = searchParams.get('month');
+  const yearParam = rawYearParam !== null ? Number(rawYearParam) : NaN;
+  const monthParam = rawMonthParam !== null ? Number(rawMonthParam) : NaN;
+  const contextYear = Number.isInteger(yearParam) && yearParam >= 2000 && yearParam <= 2100 ? yearParam : undefined;
+  const contextMonth = Number.isInteger(monthParam) && monthParam >= 1 && monthParam <= 12 ? monthParam : undefined;
+  const hasContextMonth = contextYear !== undefined && contextMonth !== undefined;
+  const contextQuery = hasContextMonth ? `?year=${contextYear}&month=${contextMonth}` : '';
 
   useEffect(() => {
-    getDevices().then((res) => setDeviceNames(res.data.map((d) => d.device_name)));
-  }, []);
+    setDeviceNames([]);
+    getDevices(hasContextMonth ? contextYear : undefined, hasContextMonth ? contextMonth : undefined)
+      .then((res) => setDeviceNames(res.data.map((d) => d.device_name)));
+  }, [contextYear, contextMonth, hasContextMonth]);
 
   const currentIndex = deviceNames.indexOf(name ?? '');
+  const currentPosition = currentIndex >= 0 ? currentIndex + 1 : null;
   const prevName = currentIndex > 0 ? deviceNames[currentIndex - 1] : null;
   const nextName = currentIndex >= 0 && currentIndex < deviceNames.length - 1 ? deviceNames[currentIndex + 1] : null;
+  const deviceDetailPath = (deviceName: string) => `/devices/${encodeURIComponent(deviceName)}${contextQuery}`;
 
   useEffect(() => {
     if (!name) return;
+    setLoading(true);
+    setError('');
     getDevice(name)
       .then((res) => {
         setSnapshots(res.data.snapshots);
-        if (res.data.snapshots.length > 0) setSelected(res.data.snapshots[0]);
+        const contextSnapshot = hasContextMonth
+          ? res.data.snapshots.find((snap) => snap.log_year === contextYear && snap.log_month === contextMonth)
+          : null;
+        if (contextSnapshot) setSelected(contextSnapshot);
+        else if (res.data.snapshots.length > 0) setSelected(res.data.snapshots[0]);
       })
       .catch(() => setError('장비 정보를 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
-  }, [name]);
+  }, [name, contextYear, contextMonth, hasContextMonth]);
 
   const showLog = async (title: string, commands: string[]) => {
     let content = rawLog;
@@ -147,14 +166,19 @@ export default function DeviceDetailPage() {
           <span>›</span>
           <span>{name}</span>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {currentPosition !== null && deviceNames.length > 0 && (
+            <span className="text-muted text-sm" style={{ fontWeight: 600, marginRight: 4, whiteSpace: 'nowrap' }}>
+              전체 {deviceNames.length}개 중 {currentPosition}번째
+            </span>
+          )}
           <button
-            onClick={() => prevName && navigate(`/devices/${encodeURIComponent(prevName)}`)}
+            onClick={() => prevName && navigate(deviceDetailPath(prevName))}
             disabled={!prevName}
             style={{ padding: '6px 18px', fontSize: 13, fontWeight: 600, border: '1px solid #e2e8f0', borderRadius: 6, background: prevName ? '#fff' : '#f7fafc', color: prevName ? '#2d3748' : '#cbd5e0', cursor: prevName ? 'pointer' : 'default' }}
           >이전</button>
           <button
-            onClick={() => nextName && navigate(`/devices/${encodeURIComponent(nextName)}`)}
+            onClick={() => nextName && navigate(deviceDetailPath(nextName))}
             disabled={!nextName}
             style={{ padding: '6px 18px', fontSize: 13, fontWeight: 600, border: '1px solid #e2e8f0', borderRadius: 6, background: nextName ? '#fff' : '#f7fafc', color: nextName ? '#2d3748' : '#cbd5e0', cursor: nextName ? 'pointer' : 'default' }}
           >다음</button>
@@ -174,7 +198,12 @@ export default function DeviceDetailPage() {
                   <button
                     key={snap.id}
                     className={`btn btn-sm ${selected?.id === snap.id ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setSelected(snap)}
+                    onClick={() => {
+                      setSelected(snap);
+                      if (snap.log_year && snap.log_month) {
+                        navigate(`/devices/${encodeURIComponent(snap.device_name)}?year=${snap.log_year}&month=${snap.log_month}`, { replace: true });
+                      }
+                    }}
                   >
                     {snap.log_year}-{String(snap.log_month ?? 0).padStart(2, '0')}
                   </button>
